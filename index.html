@@ -9,7 +9,6 @@
       --bg: #f7e7c8;
       --panel: #e9c2bb;
       --panel-top: #dcb4ad;
-      --accent: #ff7f50;
       --text: #3f2f2b;
     }
 
@@ -46,7 +45,7 @@
       width: 100%;
       height: 100%;
       display: block;
-      cursor: crosshair;
+      cursor: none;
       touch-action: none;
     }
 
@@ -61,8 +60,14 @@
       pointer-events: none;
     }
 
-    .pill {
+    .left-actions,
+    .right-actions {
+      display: flex;
+      gap: 8px;
       pointer-events: auto;
+    }
+
+    .pill {
       border: none;
       border-radius: 999px;
       padding: 8px 14px;
@@ -90,7 +95,6 @@
       border: 3px solid #f47f58;
       background: #de5e34;
       box-shadow: inset 0 -8px 0 rgba(0, 0, 0, 0.09);
-      position: relative;
       cursor: pointer;
       display: grid;
       place-items: center;
@@ -108,7 +112,6 @@
       width: 62px;
       height: 62px;
       border-radius: 12px;
-      position: relative;
       background:
         radial-gradient(circle at 10px 10px, rgba(255, 255, 255, 0.2) 0 2px, transparent 3px),
         radial-gradient(circle at 28px 18px, rgba(255, 255, 255, 0.2) 0 2px, transparent 3px),
@@ -126,6 +129,7 @@
       padding: 8px 10px;
       font-size: 12px;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+      line-height: 1.4;
     }
   </style>
 </head>
@@ -134,10 +138,15 @@
     <section class="board-wrap">
       <canvas id="board" aria-label="perler board"></canvas>
       <div class="hud">
-        <button class="pill" id="clearBtn">清空</button>
-        <button class="pill" id="catBtn">放一个猫咪模板</button>
+        <div class="left-actions">
+          <button class="pill" id="clearBtn">清空</button>
+          <button class="pill" id="catBtn">加载目标图案</button>
+        </div>
+        <div class="right-actions">
+          <button class="pill" id="modeBtn">模式：色号</button>
+        </div>
       </div>
-      <div class="help">左键放珠子 / 拖动连续放置；右键或橡皮擦删除</div>
+      <div class="help">已放珠子不会被新珠子覆盖。左键放置，拖动连续放；右键或橡皮擦删除。</div>
     </section>
     <section class="tray" id="tray"></section>
   </main>
@@ -148,23 +157,32 @@
     const tray = document.getElementById('tray');
     const clearBtn = document.getElementById('clearBtn');
     const catBtn = document.getElementById('catBtn');
+    const modeBtn = document.getElementById('modeBtn');
 
     const COLS = 22;
     const ROWS = 34;
+
     const palette = [
-      { name: '深棕', value: '#4B2208' },
-      { name: '橙红', value: '#E84B0F' },
-      { name: '绿色', value: '#0B8E3E' },
-      { name: '浅绿', value: '#2EA643' },
-      { name: '黄橙', value: '#F29A2E' },
-      { name: '米白', value: '#F7E5C0' },
-      { name: '蓝灰', value: '#AAB2D0' },
-      { name: '橡皮擦', value: null }
+      { name: '深棕 BR', code: 'BR', value: '#4B2208' },
+      { name: '橙红 OR', code: 'OR', value: '#E84B0F' },
+      { name: '绿色 GN', code: 'GN', value: '#0B8E3E' },
+      { name: '浅绿 LG', code: 'LG', value: '#2EA643' },
+      { name: '黄橙 YL', code: 'YL', value: '#F29A2E' },
+      { name: '米白 IV', code: 'IV', value: '#F7E5C0' },
+      { name: '蓝灰 BL', code: 'BL', value: '#AAB2D0' },
+      { name: '橡皮擦', code: 'ER', value: null }
     ];
+
+    const colorToCode = Object.fromEntries(
+      palette.filter((p) => p.value).map((p) => [p.value, p.code])
+    );
 
     let selected = palette[1].value;
     let grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    let targetGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    let displayMode = 'code'; // code | color
     let dragging = false;
+    let pointer = { x: -100, y: -100, inside: false };
 
     function resize() {
       const ratio = window.devicePixelRatio || 1;
@@ -195,17 +213,42 @@
     function drawBackground() {
       ctx.fillStyle = '#f6e7c7';
       ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    }
+
+    function drawTargetLayer() {
       const { x, y, s } = origin();
+      ctx.save();
+      ctx.font = `${Math.max(8, s * 0.28)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
-          const cx = x + c * s + s / 2;
-          const cy = y + r * s + s / 2;
+          const cellX = x + c * s;
+          const cellY = y + r * s;
+          const target = targetGrid[r][c];
+
+          if (target) {
+            if (displayMode === 'color') {
+              ctx.fillStyle = `${target}55`;
+              ctx.fillRect(cellX, cellY, s, s);
+            } else {
+              ctx.fillStyle = 'rgba(255,255,255,0.82)';
+              ctx.fillRect(cellX, cellY, s, s);
+              ctx.fillStyle = '#5f4f47';
+              ctx.fillText(colorToCode[target] || '--', cellX + s / 2, cellY + s / 2);
+            }
+          }
+
+          ctx.strokeStyle = 'rgba(184,138,117,0.35)';
+          ctx.strokeRect(cellX, cellY, s, s);
+
           ctx.fillStyle = '#efba9e';
           ctx.beginPath();
-          ctx.arc(cx, cy, s * 0.16, 0, Math.PI * 2);
+          ctx.arc(cellX + s / 2, cellY + s / 2, s * 0.16, 0, Math.PI * 2);
           ctx.fill();
         }
       }
+      ctx.restore();
     }
 
     function drawBead(cx, cy, radius, color) {
@@ -230,18 +273,54 @@
       ctx.fill();
     }
 
+    function drawTweezers() {
+      if (!pointer.inside) return;
+      const x = pointer.x;
+      const y = pointer.y;
+      const hasBead = selected !== null;
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(110,145,190,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(x - 24, y + 48);
+      ctx.lineTo(x - 2, y - 4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + 24, y + 48);
+      ctx.lineTo(x + 2, y - 4);
+      ctx.stroke();
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(180,120,220,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(x - 30, y + 56);
+      ctx.lineTo(x - 6, y + 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + 30, y + 56);
+      ctx.lineTo(x + 6, y + 2);
+      ctx.stroke();
+
+      if (hasBead) drawBead(x, y - 12, 10, selected);
+      ctx.restore();
+    }
+
     function draw() {
       drawBackground();
+      drawTargetLayer();
+
       const { x, y, s } = origin();
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
           const color = grid[r][c];
           if (!color) continue;
-          const cx = x + c * s + s / 2;
-          const cy = y + r * s + s / 2;
-          drawBead(cx, cy, s * 0.42, color);
+          drawBead(x + c * s + s / 2, y + r * s + s / 2, s * 0.42, color);
         }
       }
+
+      drawTweezers();
     }
 
     function toCell(clientX, clientY) {
@@ -258,7 +337,14 @@
     function paintAt(clientX, clientY, erase = false) {
       const cell = toCell(clientX, clientY);
       if (!cell) return;
-      grid[cell.r][cell.c] = erase || selected === null ? null : selected;
+
+      if (erase || selected === null) {
+        grid[cell.r][cell.c] = null;
+      } else if (!grid[cell.r][cell.c]) {
+        // 关键要求：已有珠子不允许被后续放置覆盖
+        grid[cell.r][cell.c] = selected;
+      }
+
       draw();
     }
 
@@ -274,6 +360,7 @@
         btn.addEventListener('click', () => {
           selected = p.value;
           mountPalette();
+          draw();
         });
         tray.appendChild(btn);
       });
@@ -300,15 +387,22 @@
         '......21111111111111111',
         '.......2222222222111111'
       ];
-      grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+
+      targetGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
       pattern.forEach((row, r) => {
         [...row].forEach((ch, c) => {
-          if (r >= ROWS || c >= COLS) return;
-          if (ch === '1') grid[r + 3][c] = '#E84B0F';
-          if (ch === '2') grid[r + 3][c] = '#4B2208';
+          const rr = r + 3;
+          if (rr >= ROWS || c >= COLS) return;
+          if (ch === '1') targetGrid[rr][c] = '#E84B0F';
+          if (ch === '2') targetGrid[rr][c] = '#4B2208';
         });
       });
+
       draw();
+    }
+
+    function updateModeText() {
+      modeBtn.textContent = `模式：${displayMode === 'code' ? '色号' : '目标颜色'}`;
     }
 
     canvas.addEventListener('pointerdown', (e) => {
@@ -317,8 +411,19 @@
     });
 
     canvas.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
-      paintAt(e.clientX, e.clientY, e.buttons === 2);
+      const rect = canvas.getBoundingClientRect();
+      pointer = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+        inside: true
+      };
+      if (dragging) paintAt(e.clientX, e.clientY, e.buttons === 2);
+      else draw();
+    });
+
+    canvas.addEventListener('pointerleave', () => {
+      pointer.inside = false;
+      draw();
     });
 
     window.addEventListener('pointerup', () => { dragging = false; });
@@ -331,7 +436,15 @@
 
     catBtn.addEventListener('click', loadCatPattern);
 
+    modeBtn.addEventListener('click', () => {
+      displayMode = displayMode === 'code' ? 'color' : 'code';
+      updateModeText();
+      draw();
+    });
+
     mountPalette();
+    loadCatPattern();
+    updateModeText();
     resize();
     window.addEventListener('resize', resize);
   </script>
