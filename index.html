@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Perler Beads Mini</title>
+  <style>
+    :root {
+      --bg: #f7e7c8;
+      --panel: #e9c2bb;
+      --panel-top: #dcb4ad;
+      --text: #3f2f2b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(#f5d5cf, #f0cbc5);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      user-select: none;
+    }
+
+    .app {
+      width: min(92vw, 760px);
+      height: min(92vh, 980px);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+      background: #fff;
+      display: grid;
+      grid-template-rows: 1fr 126px;
+    }
+
+    .board-wrap {
+      position: relative;
+      background: var(--bg);
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: none;
+      touch-action: none;
+    }
+
+    .hud {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .left-actions,
+    .right-actions {
+      display: flex;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    .pill {
+      border: none;
+      border-radius: 999px;
+      padding: 8px 14px;
+      background: rgba(255, 255, 255, 0.88);
+      color: #4a352f;
+      font-weight: 700;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      cursor: pointer;
+    }
+
+    .tray {
+      background: linear-gradient(var(--panel), var(--panel-top));
+      border-top: 4px solid #b7b1cc;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 12px;
+      overflow-x: auto;
+    }
+
+    .color-bin {
+      min-width: 92px;
+      height: 92px;
+      border-radius: 16px;
+      border: 3px solid #f47f58;
+      background: #de5e34;
+      box-shadow: inset 0 -8px 0 rgba(0, 0, 0, 0.09);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      transition: transform 0.1s ease;
+    }
+
+    .color-bin:hover { transform: translateY(-2px); }
+
+    .color-bin.active {
+      outline: 4px solid #fff;
+      box-shadow: 0 0 0 3px #f47f58, inset 0 -8px 0 rgba(0, 0, 0, 0.09);
+    }
+
+    .bead-sample {
+      width: 62px;
+      height: 62px;
+      border-radius: 12px;
+      background:
+        radial-gradient(circle at 10px 10px, rgba(255, 255, 255, 0.2) 0 2px, transparent 3px),
+        radial-gradient(circle at 28px 18px, rgba(255, 255, 255, 0.2) 0 2px, transparent 3px),
+        radial-gradient(circle at 48px 36px, rgba(255, 255, 255, 0.2) 0 2px, transparent 3px),
+        radial-gradient(circle at center, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.28));
+      background-color: var(--c);
+    }
+
+    .help {
+      position: absolute;
+      right: 16px;
+      bottom: 138px;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 12px;
+      padding: 8px 10px;
+      font-size: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="board-wrap">
+      <canvas id="board" aria-label="perler board"></canvas>
+      <div class="hud">
+        <div class="left-actions">
+          <button class="pill" id="clearBtn">清空</button>
+          <button class="pill" id="catBtn">加载目标图案</button>
+        </div>
+        <div class="right-actions">
+          <button class="pill" id="modeBtn">模式：色号</button>
+        </div>
+      </div>
+      <div class="help">已放珠子不会被新珠子覆盖。左键放置，拖动连续放；右键或橡皮擦删除。</div>
+    </section>
+    <section class="tray" id="tray"></section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+    const tray = document.getElementById('tray');
+    const clearBtn = document.getElementById('clearBtn');
+    const catBtn = document.getElementById('catBtn');
+    const modeBtn = document.getElementById('modeBtn');
+
+    const COLS = 22;
+    const ROWS = 34;
+
+    const palette = [
+      { name: '深棕 BR', code: 'BR', value: '#4B2208' },
+      { name: '橙红 OR', code: 'OR', value: '#E84B0F' },
+      { name: '绿色 GN', code: 'GN', value: '#0B8E3E' },
+      { name: '浅绿 LG', code: 'LG', value: '#2EA643' },
+      { name: '黄橙 YL', code: 'YL', value: '#F29A2E' },
+      { name: '米白 IV', code: 'IV', value: '#F7E5C0' },
+      { name: '蓝灰 BL', code: 'BL', value: '#AAB2D0' },
+      { name: '橡皮擦', code: 'ER', value: null }
+    ];
+
+    const colorToCode = Object.fromEntries(
+      palette.filter((p) => p.value).map((p) => [p.value, p.code])
+    );
+
+    let selected = palette[1].value;
+    let grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    let targetGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    let displayMode = 'code'; // code | color
+    let dragging = false;
+    let pointer = { x: -100, y: -100, inside: false };
+
+    function resize() {
+      const ratio = window.devicePixelRatio || 1;
+      const { width, height } = canvas.getBoundingClientRect();
+      canvas.width = Math.floor(width * ratio);
+      canvas.height = Math.floor(height * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      draw();
+    }
+
+    function cellSize() {
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      return Math.min((w - 24) / COLS, (h - 24) / ROWS);
+    }
+
+    function origin() {
+      const s = cellSize();
+      const boardW = s * COLS;
+      const boardH = s * ROWS;
+      return {
+        x: (canvas.clientWidth - boardW) / 2,
+        y: (canvas.clientHeight - boardH) / 2,
+        s
+      };
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = '#f6e7c7';
+      ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    }
+
+    function drawTargetLayer() {
+      const { x, y, s } = origin();
+      ctx.save();
+      ctx.font = `${Math.max(8, s * 0.28)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const cellX = x + c * s;
+          const cellY = y + r * s;
+          const target = targetGrid[r][c];
+
+          if (target) {
+            if (displayMode === 'color') {
+              ctx.fillStyle = `${target}55`;
+              ctx.fillRect(cellX, cellY, s, s);
+            } else {
+              ctx.fillStyle = 'rgba(255,255,255,0.82)';
+              ctx.fillRect(cellX, cellY, s, s);
+              ctx.fillStyle = '#5f4f47';
+              ctx.fillText(colorToCode[target] || '--', cellX + s / 2, cellY + s / 2);
+            }
+          }
+
+          ctx.strokeStyle = 'rgba(184,138,117,0.35)';
+          ctx.strokeRect(cellX, cellY, s, s);
+
+          ctx.fillStyle = '#efba9e';
+          ctx.beginPath();
+          ctx.arc(cellX + s / 2, cellY + s / 2, s * 0.16, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawBead(cx, cy, radius, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath();
+      ctx.arc(cx, cy + radius * 0.08, radius * 0.94, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx, cy - radius * 0.08, radius * 0.9, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius * 0.32, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawTweezers() {
+      if (!pointer.inside) return;
+      const x = pointer.x;
+      const y = pointer.y;
+      const hasBead = selected !== null;
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(110,145,190,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(x - 24, y + 48);
+      ctx.lineTo(x - 2, y - 4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + 24, y + 48);
+      ctx.lineTo(x + 2, y - 4);
+      ctx.stroke();
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(180,120,220,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(x - 30, y + 56);
+      ctx.lineTo(x - 6, y + 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + 30, y + 56);
+      ctx.lineTo(x + 6, y + 2);
+      ctx.stroke();
+
+      if (hasBead) drawBead(x, y - 12, 10, selected);
+      ctx.restore();
+    }
+
+    function draw() {
+      drawBackground();
+      drawTargetLayer();
+
+      const { x, y, s } = origin();
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const color = grid[r][c];
+          if (!color) continue;
+          drawBead(x + c * s + s / 2, y + r * s + s / 2, s * 0.42, color);
+        }
+      }
+
+      drawTweezers();
+    }
+
+    function toCell(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const { x, y, s } = origin();
+      const localX = clientX - rect.left;
+      const localY = clientY - rect.top;
+      const c = Math.floor((localX - x) / s);
+      const r = Math.floor((localY - y) / s);
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
+      return { r, c };
+    }
+
+    function paintAt(clientX, clientY, erase = false) {
+      const cell = toCell(clientX, clientY);
+      if (!cell) return;
+
+      if (erase || selected === null) {
+        grid[cell.r][cell.c] = null;
+      } else if (!grid[cell.r][cell.c]) {
+        // 关键要求：已有珠子不允许被后续放置覆盖
+        grid[cell.r][cell.c] = selected;
+      }
+
+      draw();
+    }
+
+    function mountPalette() {
+      tray.innerHTML = '';
+      palette.forEach((p) => {
+        const btn = document.createElement('button');
+        btn.className = 'color-bin';
+        btn.title = p.name;
+        btn.setAttribute('aria-label', p.name);
+        if (p.value === selected) btn.classList.add('active');
+        btn.innerHTML = `<div class="bead-sample" style="--c:${p.value || '#999'}"></div>`;
+        btn.addEventListener('click', () => {
+          selected = p.value;
+          mountPalette();
+          draw();
+        });
+        tray.appendChild(btn);
+      });
+    }
+
+    function loadCatPattern() {
+      const pattern = [
+        '.................11111',
+        '..................1....',
+        '......1...........1....',
+        '.....11.1..............',
+        '....111111111.....1....',
+        '....11.1...............',
+        '....11..................',
+        '....11..1......11....11',
+        '....11.....1...11....11',
+        '....111..1....111....11',
+        '....111...1..1111....11',
+        '....1111111111111111111',
+        '....1111111111111111111',
+        '....1111111111111111111',
+        '....2111111111111111111',
+        '.....211111111111111111',
+        '......21111111111111111',
+        '.......2222222222111111'
+      ];
+
+      targetGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+      pattern.forEach((row, r) => {
+        [...row].forEach((ch, c) => {
+          const rr = r + 3;
+          if (rr >= ROWS || c >= COLS) return;
+          if (ch === '1') targetGrid[rr][c] = '#E84B0F';
+          if (ch === '2') targetGrid[rr][c] = '#4B2208';
+        });
+      });
+
+      draw();
+    }
+
+    function updateModeText() {
+      modeBtn.textContent = `模式：${displayMode === 'code' ? '色号' : '目标颜色'}`;
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      paintAt(e.clientX, e.clientY, e.button === 2);
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      pointer = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+        inside: true
+      };
+      if (dragging) paintAt(e.clientX, e.clientY, e.buttons === 2);
+      else draw();
+    });
+
+    canvas.addEventListener('pointerleave', () => {
+      pointer.inside = false;
+      draw();
+    });
+
+    window.addEventListener('pointerup', () => { dragging = false; });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    clearBtn.addEventListener('click', () => {
+      grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+      draw();
+    });
+
+    catBtn.addEventListener('click', loadCatPattern);
+
+    modeBtn.addEventListener('click', () => {
+      displayMode = displayMode === 'code' ? 'color' : 'code';
+      updateModeText();
+      draw();
+    });
+
+    mountPalette();
+    loadCatPattern();
+    updateModeText();
+    resize();
+    window.addEventListener('resize', resize);
+  </script>
+</body>
+</html>
