@@ -39,25 +39,23 @@
     return result;
   };
 
-  const generate221Palette = () => {
-    const families = [
-      { prefix: 'A', name: '黄色系', count: 26, stops: ['#F7F3C9', '#F4DA7E', '#F2B35D', '#ED8E54'] },
-      { prefix: 'B', name: '绿色系', count: 32, stops: ['#BDEB59', '#5CB447', '#1D7A54', '#5E613F'] },
-      { prefix: 'C', name: '青色系', count: 29, stops: ['#C9EBE1', '#74C9D4', '#2289B3', '#3F568A'] },
-      { prefix: 'D', name: '蓝紫系', count: 26, stops: ['#C6CCEC', '#7D94D9', '#8B56B7', '#47509C'] },
-      { prefix: 'E', name: '粉紫系', count: 24, stops: ['#EAD9D5', '#EBA6D2', '#E56FB0', '#B64284'] },
-      { prefix: 'F', name: '红色系', count: 25, stops: ['#F8A3A0', '#F55B68', '#DA2945', '#B5423B'] },
-      { prefix: 'G', name: '棕色系', count: 21, stops: ['#EEE0D4', '#D4AE83', '#A7764F', '#7C5641'] },
-      { prefix: 'H', name: '黑白系', count: 23, stops: ['#F3F4EF', '#D7D8CD', '#A6A89D', '#353535'] },
-      { prefix: 'M', name: '灰色系', count: 15, stops: ['#E6E8E2', '#ADB5B1', '#7A8486', '#41484B'] }
-    ];
+  const colorFamilies = [
+    { prefix: 'A', name: '黄色系', count: 26, stops: ['#F7F3C9', '#F4DA7E', '#F2B35D', '#ED8E54'] },
+    { prefix: 'B', name: '绿色系', count: 32, stops: ['#BDEB59', '#5CB447', '#1D7A54', '#5E613F'] },
+    { prefix: 'C', name: '青色系', count: 29, stops: ['#C9EBE1', '#74C9D4', '#2289B3', '#3F568A'] },
+    { prefix: 'D', name: '蓝紫系', count: 26, stops: ['#C6CCEC', '#7D94D9', '#8B56B7', '#47509C'] },
+    { prefix: 'E', name: '粉紫系', count: 24, stops: ['#EAD9D5', '#EBA6D2', '#E56FB0', '#B64284'] },
+    { prefix: 'F', name: '红色系', count: 25, stops: ['#F8A3A0', '#F55B68', '#DA2945', '#B5423B'] },
+    { prefix: 'G', name: '棕色系', count: 21, stops: ['#EEE0D4', '#D4AE83', '#A7764F', '#7C5641'] },
+    { prefix: 'H', name: '黑白系', count: 23, stops: ['#F3F4EF', '#D7D8CD', '#A6A89D', '#353535'] },
+    { prefix: 'M', name: '灰色系', count: 15, stops: ['#E6E8E2', '#ADB5B1', '#7A8486', '#41484B'] }
+  ];
 
-    return families.flatMap((family) => interpolateStops(family.stops, family.count).map((value, i) => ({
-      name: `${family.name} ${family.prefix}${String(i + 1).padStart(2, '0')}`,
-      code: `${family.prefix}${String(i + 1).padStart(2, '0')}`,
-      value
-    })));
-  };
+  const generate221Palette = () => colorFamilies.flatMap((family) => interpolateStops(family.stops, family.count).map((value, i) => ({
+    name: `${family.name} ${family.prefix}${String(i + 1).padStart(2, '0')}`,
+    code: `${family.prefix}${String(i + 1).padStart(2, '0')}`,
+    value
+  })));
 
   const palette = [...generate221Palette(), { name: '橡皮擦', code: 'ER', value: null }];
 
@@ -66,11 +64,19 @@
 
   const createGrid = (rows, cols, fill = null) => Array.from({ length: rows }, () => Array(cols).fill(fill));
 
+  const firstFamily = colorFamilies[0].prefix;
+  const familySelections = Object.fromEntries(colorFamilies.map((family) => {
+    const firstColor = paintColors.find((item) => item.code.startsWith(family.prefix));
+    return [family.prefix, firstColor?.code || null];
+  }));
+
   const state = {
     cols: 22,
     rows: 34,
     zoom: 1,
     selected: paintColors[0].value,
+    activeFamily: firstFamily,
+    familySelections,
     grid: createGrid(34, 22),
     targetGrid: createGrid(34, 22),
     displayMode: 'code',
@@ -520,19 +526,69 @@
 
   const mountPalette = () => {
     tray.innerHTML = '';
-    palette.forEach((p) => {
-      const btn = document.createElement('button');
-      btn.className = 'color-bin';
-      btn.title = p.name;
-      if (p.value === state.selected) btn.classList.add('active');
-      btn.innerHTML = `<div class="bead-sample" style="--c:${p.value || '#888'}"></div>`;
-      btn.onclick = () => {
-        state.selected = p.value;
+
+    colorFamilies.forEach((family) => {
+      const familyColors = paintColors.filter((item) => item.code.startsWith(family.prefix));
+      if (!familyColors.length) return;
+
+      const selectedCode = state.familySelections[family.prefix] || familyColors[0].code;
+      const activeColor = familyColors.find((item) => item.code === selectedCode) || familyColors[0];
+      state.familySelections[family.prefix] = activeColor.code;
+
+      const block = document.createElement('div');
+      block.className = 'family-bin';
+      if (state.selected === activeColor.value) block.classList.add('active');
+
+      const swatch = document.createElement('button');
+      swatch.className = 'family-swatch';
+      swatch.title = `${family.name}（${activeColor.code}）`;
+      swatch.innerHTML = `<div class="bead-sample" style="--c:${activeColor.value}"></div><span>${family.prefix}</span>`;
+      swatch.onclick = () => {
+        state.selected = activeColor.value;
+        state.activeFamily = family.prefix;
         mountPalette();
         requestDraw();
       };
-      tray.appendChild(btn);
+
+      const selector = document.createElement('select');
+      selector.className = 'family-select';
+      familyColors.forEach((item) => {
+        const op = document.createElement('option');
+        op.value = item.code;
+        op.textContent = item.code.slice(1);
+        selector.appendChild(op);
+      });
+      selector.value = activeColor.code;
+      selector.onchange = (e) => {
+        const picked = familyColors.find((item) => item.code === e.target.value);
+        if (!picked) return;
+        state.familySelections[family.prefix] = picked.code;
+        state.selected = picked.value;
+        state.activeFamily = family.prefix;
+        mountPalette();
+        requestDraw();
+      };
+
+      const tag = document.createElement('div');
+      tag.className = 'family-tag';
+      tag.textContent = `${family.prefix} ${family.name}`;
+
+      block.appendChild(swatch);
+      block.appendChild(selector);
+      block.appendChild(tag);
+      tray.appendChild(block);
     });
+
+    const eraserBtn = document.createElement('button');
+    eraserBtn.className = 'family-bin eraser-bin';
+    if (state.selected === null) eraserBtn.classList.add('active');
+    eraserBtn.innerHTML = '<span class="eraser-mark">橡皮擦</span>';
+    eraserBtn.onclick = () => {
+      state.selected = null;
+      mountPalette();
+      requestDraw();
+    };
+    tray.appendChild(eraserBtn);
   };
 
   const resize = () => {
