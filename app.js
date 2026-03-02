@@ -577,7 +577,7 @@
 
     octx.fillStyle = '#f5f1e9';
     octx.fillRect(0, 0, state.cols, state.rows);
-    octx.drawImage(img, 0, 0, img.width, img.height, crop.dx, crop.dy, crop.dw, crop.dh);
+    octx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, state.cols, state.rows);
 
     const imgData = octx.getImageData(0, 0, state.cols, state.rows).data;
     const pixels = [];
@@ -895,10 +895,10 @@
     if (!session) return;
     const { img, scale, offsetX, offsetY, frame, onConfirm } = session;
     const crop = {
-      dx: (frame.frameX - offsetX) * (state.cols / frame.frameW),
-      dy: (frame.frameY - offsetY) * (state.rows / frame.frameH),
-      dw: img.width * scale * (state.cols / frame.frameW),
-      dh: img.height * scale * (state.rows / frame.frameH)
+      sx: (frame.frameX - offsetX) / scale,
+      sy: (frame.frameY - offsetY) / scale,
+      sw: frame.frameW / scale,
+      sh: frame.frameH / scale
     };
     closeCropModal();
     await onConfirm(crop);
