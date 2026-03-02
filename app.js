@@ -2,64 +2,96 @@
   const canvas = document.getElementById('board');
   const ctx = canvas.getContext('2d');
   const tray = document.getElementById('tray');
+  const targetLegend = document.getElementById('targetLegend');
 
   const boardThickness = 26;
   const MIN_GRID = 8;
   const MAX_GRID = 120;
 
-  const hslToHex = (h, s, l) => {
-    const sat = s / 100;
-    const lig = l / 100;
-    const c = (1 - Math.abs(2 * lig - 1)) * sat;
-    const hh = h / 60;
-    const x = c * (1 - Math.abs((hh % 2) - 1));
-    let r = 0, g = 0, b = 0;
-    if (hh >= 0 && hh < 1) [r, g, b] = [c, x, 0];
-    else if (hh < 2) [r, g, b] = [x, c, 0];
-    else if (hh < 3) [r, g, b] = [0, c, x];
-    else if (hh < 4) [r, g, b] = [0, x, c];
-    else if (hh < 5) [r, g, b] = [x, 0, c];
-    else [r, g, b] = [c, 0, x];
-    const m = lig - c / 2;
-    const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+  const hexToRgb = (hex) => {
+    const v = hex.replace('#', '');
+    return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
   };
 
-  const generate221Palette = () => {
-    const colors = [];
-    const hues = Array.from({ length: 18 }, (_, i) => i * 20);
-    const sats = [55, 70, 85];
-    const lights = [35, 50, 65, 80];
+  const paletteEntries = [
+    ['A1', '#FAF4C8'], ['A2', '#FFFFD5'], ['A3', '#FEFF8B'], ['A4', '#FBED56'], ['A5', '#F4D738'], ['A6', '#FEAC4C'], ['A7', '#FE8B4C'], ['A8', '#FFDA45'], ['A9', '#FF995B'],
+    ['A10', '#F77C31'], ['A11', '#FFDD99'], ['A12', '#FE9F72'], ['A13', '#FFC365'], ['A14', '#FD543D'], ['A15', '#FFF365'], ['A16', '#FFFF9F'], ['A17', '#FFE36E'], ['A18', '#FEBE7D'], ['A19', '#FD7C72'],
+    ['A20', '#FFD568'], ['A21', '#FFE395'], ['A22', '#F4F57D'], ['A23', '#E6C9B7'], ['A24', '#F7F8A2'], ['A25', '#FFD67D'], ['A26', '#FFC830'],
+    ['B1', '#E6EE31'], ['B2', '#63F347'], ['B3', '#9EF780'], ['B4', '#5DE035'], ['B5', '#35E352'], ['B6', '#65E2A6'], ['B7', '#3DAF80'], ['B8', '#1C9C4F'], ['B9', '#27523A'], ['B10', '#95D3C2'],
+    ['B11', '#5D722A'], ['B12', '#166F41'], ['B13', '#CAEB7B'], ['B14', '#ADE946'], ['B15', '#2E5132'], ['B16', '#C5ED9C'], ['B17', '#9BB13A'], ['B18', '#E6EE49'], ['B19', '#24B88C'], ['B20', '#C2F0CC'],
+    ['B21', '#156A6B'], ['B22', '#0B3C43'], ['B23', '#303A21'], ['B24', '#EEFCA5'], ['B25', '#4E846D'], ['B26', '#8D7A35'], ['B27', '#CCE1AF'], ['B28', '#9EE5B9'], ['B29', '#C5E254'], ['B30', '#E2FCB1'], ['B31', '#B0E792'], ['B32', '#9CAB5A'],
+    ['C1', '#E8FFE7'], ['C2', '#A9F9FC'], ['C3', '#A0E2FB'], ['C4', '#41CCFF'], ['C5', '#01ACEB'], ['C6', '#50AAF0'], ['C7', '#3677D2'], ['C8', '#0F54C0'], ['C9', '#324BCA'], ['C10', '#3EBCE2'],
+    ['C11', '#28DDDE'], ['C12', '#1C334D'], ['C13', '#CDE8FF'], ['C14', '#D5FDFF'], ['C15', '#22C4C6'], ['C16', '#1557A8'], ['C17', '#04D1F6'], ['C18', '#1D3344'], ['C19', '#1887A2'], ['C20', '#176DAF'],
+    ['C21', '#BEDDFF'], ['C22', '#67B4BE'], ['C23', '#C8E2FF'], ['C24', '#7CC4FF'], ['C25', '#A9E5E5'], ['C26', '#3CAED8'], ['C27', '#D3DFFA'], ['C28', '#BBCFED'], ['C29', '#34488E'],
+    ['D1', '#AEB4F2'], ['D2', '#858EDD'], ['D3', '#2F54AF'], ['D4', '#182A84'], ['D5', '#B843C5'], ['D6', '#AC7BDE'], ['D7', '#8854B3'], ['D8', '#E2D3FF'], ['D9', '#D5B9F8'], ['D10', '#361851'],
+    ['D11', '#B9BAE1'], ['D12', '#DE9AD4'], ['D13', '#B90095'], ['D14', '#8B279B'], ['D15', '#2F1F90'], ['D16', '#E3E1EE'], ['D17', '#C4D4F6'], ['D18', '#A45EC7'], ['D19', '#D8C3D7'], ['D20', '#9C32B2'],
+    ['D21', '#9A009B'], ['D22', '#333A95'], ['D23', '#EBDAFC'], ['D24', '#7786E5'], ['D25', '#494FC7'], ['D26', '#DFC2F8'],
+    ['E1', '#FDD3CC'], ['E2', '#FEC0DF'], ['E3', '#FFB7E7'], ['E4', '#E8649E'], ['E5', '#F551A2'], ['E6', '#F13D74'], ['E7', '#C63478'], ['E8', '#FFDBE9'], ['E9', '#E970CC'], ['E10', '#D33793'],
+    ['E11', '#FCDDD2'], ['E12', '#F78FC3'], ['E13', '#B5006D'], ['E14', '#FFD1BA'], ['E15', '#F8C7C9'], ['E16', '#FFF3EB'], ['E17', '#FFE2EA'], ['E18', '#FFC7DB'], ['E19', '#FEBAD5'], ['E20', '#D8C7D1'],
+    ['E21', '#BD9DA1'], ['E22', '#B785A1'], ['E23', '#937A8D'], ['E24', '#E1BCE8'],
+    ['F1', '#FD957B'], ['F2', '#FC3D46'], ['F3', '#F74941'], ['F4', '#FC283C'], ['F5', '#E7002F'], ['F6', '#943630'], ['F7', '#971937'], ['F8', '#BC0028'], ['F9', '#E2677A'], ['F10', '#8A4526'],
+    ['F11', '#5A2121'], ['F12', '#FD4E6A'], ['F13', '#F35744'], ['F14', '#FFA9AD'], ['F15', '#D30022'], ['F16', '#FEC2A6'], ['F17', '#E69C79'], ['F18', '#D37C46'], ['F19', '#C1444A'], ['F20', '#CD9391'],
+    ['F21', '#F7B4C6'], ['F22', '#FDC0D0'], ['F23', '#F67E66'], ['F24', '#E698AA'], ['F25', '#E54B4F'],
+    ['G1', '#FFE2CE'], ['G2', '#FFC4AA'], ['G3', '#F4C3A5'], ['G4', '#E1B383'], ['G5', '#EDB045'], ['G6', '#E99C17'], ['G7', '#9D5B3E'], ['G8', '#753832'], ['G9', '#E6B483'], ['G10', '#D98C39'],
+    ['G11', '#E0C593'], ['G12', '#FFC890'], ['G13', '#B7714A'], ['G14', '#8D614C'], ['G15', '#FCF9E0'], ['G16', '#F2D9BA'], ['G17', '#78524B'], ['G18', '#FFE4CC'], ['G19', '#E07935'], ['G20', '#A94023'], ['G21', '#B88558'],
+    ['H1', '#FDFBFF'], ['H2', '#FEFFFF'], ['H3', '#B6B1BA'], ['H4', '#89858C'], ['H5', '#48464E'], ['H6', '#2F2B2F'], ['H7', '#000000'], ['H8', '#E7D6DB'], ['H9', '#EDEDED'], ['H10', '#EEE9EA'],
+    ['H11', '#CECDD5'], ['H12', '#FFF5ED'], ['H13', '#F5ECD2'], ['H14', '#CFD7D3'], ['H15', '#98A6A8'], ['H16', '#1D1414'], ['H17', '#F1EDED'], ['H18', '#FFFDF0'], ['H19', '#F6EFE2'], ['H20', '#949FA3'], ['H21', '#FFFBE1'], ['H22', '#CACAD4'], ['H23', '#9A9D94'],
+    ['M1', '#BCC6B8'], ['M2', '#8AA386'], ['M3', '#697D80'], ['M4', '#E3D2BC'], ['M5', '#D0CCAA'], ['M6', '#B0A782'], ['M7', '#B4A497'], ['M8', '#B38281'], ['M9', '#A58767'], ['M10', '#C5B2BC'], ['M11', '#9F7594'], ['M12', '#644749'], ['M13', '#D19066'], ['M14', '#C77362'], ['M15', '#757D78'],
+    ['P1', '#FCF7F8'], ['P2', '#B0A9AC'], ['P3', '#AFDCAB'], ['P4', '#FEA49F'], ['P5', '#EE8C3E'], ['P6', '#5FD0A7'], ['P7', '#EB9270'], ['P8', '#F0D958'], ['P9', '#D9D9D9'], ['P10', '#D9C7EA'],
+    ['P11', '#F3ECC9'], ['P12', '#E6EEF2'], ['P13', '#AACBEF'], ['P14', '#337680'], ['P15', '#668575'], ['P16', '#FEBF45'], ['P17', '#FEA324'], ['P18', '#FEB89F'], ['P19', '#FFFEEC'], ['P20', '#FEBECF'], ['P21', '#ECBEBF'], ['P22', '#E4A89F'], ['P23', '#A56268'],
+    ['Q1', '#F2A5E8'], ['Q2', '#E9EC91'], ['Q3', '#FFFF00'], ['Q4', '#FFEBFA'], ['Q5', '#76CEDE'],
+    ['R1', '#D50D21'], ['R2', '#F92F83'], ['R3', '#FD8324'], ['R4', '#F8EC31'], ['R5', '#35C75B'], ['R6', '#238891'], ['R7', '#19779D'], ['R8', '#1A60C3'], ['R9', '#9A56B4'], ['R10', '#FFDB4C'],
+    ['R11', '#FFEBFA'], ['R12', '#D8D5CE'], ['R13', '#55514C'], ['R14', '#9FE4DF'], ['R15', '#77CEE9'], ['R16', '#3ECFCA'], ['R17', '#4A867A'], ['R18', '#7FCD9D'], ['R19', '#CDE55D'], ['R20', '#E8C7B4'],
+    ['R21', '#AD6F3C'], ['R22', '#6C372F'], ['R23', '#FEB872'], ['R24', '#F3C1C0'], ['R25', '#C9675E'], ['R26', '#D293BE'], ['R27', '#EA8CB1'], ['R28', '#9C87D6'],
+    ['T1', '#FFFFFF'],
+    ['Y1', '#FD6FB4'], ['Y2', '#FEB481'], ['Y3', '#D7FAA0'], ['Y4', '#8BDBFA'], ['Y5', '#E987EA'],
+    ['ZG1', '#DAABB3'], ['ZG2', '#D6AA87'], ['ZG3', '#C1BD8D'], ['ZG4', '#96869F'], ['ZG5', '#8490A6'], ['ZG6', '#94BFE2'], ['ZG7', '#E2A9D2'], ['ZG8', '#AB91C0']
+  ];
 
-    for (const h of hues) {
-      for (const s of sats) {
-        for (const l of lights) {
-          colors.push(hslToHex(h, s, l));
-        }
-      }
+  const colorFamilies = [];
+  const familyMap = new Map();
+  paletteEntries.forEach(([code, value]) => {
+    const m = code.match(/^([A-Z]+)(\d+)$/);
+    if (!m) return;
+    const prefix = m[1];
+    if (!familyMap.has(prefix)) {
+      const family = { prefix, name: `${prefix}色系` };
+      familyMap.set(prefix, family);
+      colorFamilies.push(family);
     }
+  });
 
-    colors.push('#111111', '#333333', '#666666', '#AAAAAA', '#EEEEEE');
+  const generatePalette = () => paletteEntries.map(([code, value]) => {
+    const m = code.match(/^([A-Z]+)(\d+)$/);
+    const prefix = m ? m[1] : '';
+    const family = familyMap.get(prefix);
+    return {
+      name: `${family?.name || '颜色'} ${code}`,
+      code,
+      value
+    };
+  });
 
-    return colors.slice(0, 221).map((hex, i) => ({
-      name: `颜色 ${String(i + 1).padStart(3, '0')}`,
-      code: `C${String(i + 1).padStart(3, '0')}`,
-      value: hex
-    }));
-  };
-
-  const palette = [...generate221Palette(), { name: '橡皮擦', code: 'ER', value: null }];
+  const palette = [...generatePalette(), { name: '橡皮擦', code: 'ER', value: null }];
 
   const paintColors = palette.filter((p) => p.value);
   const colorToCode = Object.fromEntries(paintColors.map((p) => [p.value, p.code]));
 
   const createGrid = (rows, cols, fill = null) => Array.from({ length: rows }, () => Array(cols).fill(fill));
 
+  const firstFamily = colorFamilies[0].prefix;
+  const familySelections = Object.fromEntries(colorFamilies.map((family) => {
+    const firstColor = paintColors.find((item) => item.code.startsWith(family.prefix));
+    return [family.prefix, firstColor?.code || null];
+  }));
+
   const state = {
     cols: 22,
     rows: 34,
     zoom: 1,
     selected: paintColors[0].value,
+    activeFamily: firstFamily,
+    familySelections,
     grid: createGrid(34, 22),
     targetGrid: createGrid(34, 22),
     displayMode: 'code',
@@ -67,11 +99,6 @@
     pointer: { x: 0, y: 0, inside: false },
     yawAngle: 0,
     sourceImage: null
-  };
-
-  const hexToRgb = (hex) => {
-    const v = hex.replace('#', '');
-    return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
   };
 
   const colorDist = (a, b) => {
@@ -90,6 +117,77 @@
       }
     });
     return best;
+  };
+
+  const getTargetUsedColors = () => {
+    const set = new Set();
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        const t = state.targetGrid[r]?.[c];
+        if (t) set.add(t);
+      }
+    }
+    return [...set];
+  };
+
+  const drawTargetBlinkOverlay = () => {
+    if (!state.selected) return false;
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 220);
+    const fillAlpha = 0.1 + pulse * 0.25;
+    const strokeAlpha = 0.35 + pulse * 0.55;
+    let hasMatch = false;
+
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        const t = state.targetGrid[r]?.[c];
+        if (!t || t !== state.selected) continue;
+        // 已正确填充的格子不再高亮闪烁
+        if (state.grid[r]?.[c] === t) continue;
+        hasMatch = true;
+        drawProjectedCell(c + 0.03, r + 0.03);
+        ctx.fillStyle = `rgba(255, 243, 122, ${fillAlpha.toFixed(3)})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255, 125, 60, ${strokeAlpha.toFixed(3)})`;
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      }
+    }
+
+    return hasMatch;
+  };
+
+  const renderTargetLegend = () => {
+    const usedColors = getTargetUsedColors();
+    const showLegend = state.displayMode === 'color' && usedColors.length > 0;
+    targetLegend.classList.toggle('hidden', !showLegend);
+    if (!showLegend) {
+      targetLegend.innerHTML = '';
+      return;
+    }
+
+    const sorted = usedColors
+      .map((value) => ({ value, code: colorToCode[value] || '--' }))
+      .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
+    targetLegend.innerHTML = '';
+    const title = document.createElement('span');
+    title.className = 'legend-title';
+    title.textContent = '目标图例：';
+    targetLegend.appendChild(title);
+
+    sorted.forEach((item) => {
+      const chip = document.createElement('button');
+      chip.className = 'legend-chip';
+      if (state.selected === item.value) chip.classList.add('active');
+      chip.innerHTML = `<span class="legend-dot" style="background:${item.value}"></span><span class="legend-code">${item.code}</span>`;
+      chip.onclick = () => {
+        state.selected = item.value;
+        mountPalette();
+        renderTargetLegend();
+        requestDraw(false);
+      };
+      targetLegend.appendChild(chip);
+    });
   };
 
   const projectionCache = { key: '', data: null };
@@ -374,7 +472,10 @@
     } else {
       ctx.putImageData(cachedBaseImage, 0, 0);
     }
+
+    const blinking = drawTargetBlinkOverlay();
     drawTweezers();
+    if (blinking) requestDraw(false);
   };
 
   let drawQueued = false;
@@ -464,6 +565,7 @@
         state.targetGrid[r][c] = centerToHex[labels[idx++]];
       }
     }
+    renderTargetLegend();
     requestDraw();
   };
 
@@ -485,10 +587,11 @@
         const rr = r + rowOffset;
         const cc = c + colOffset;
         if (rr >= state.rows || cc >= state.cols) return;
-        if (ch === '1') state.targetGrid[rr][cc] = '#F5F1E9';
-        if (ch === '2') state.targetGrid[rr][cc] = '#D7D7D7';
+        if (ch === '1') state.targetGrid[rr][cc] = paintColors.find((p) => p.code === 'H2')?.value || '#F2F2EE';
+        if (ch === '2') state.targetGrid[rr][cc] = paintColors.find((p) => p.code === 'H10')?.value || '#B4B6AB';
       });
     });
+    renderTargetLegend();
     requestDraw();
   };
 
@@ -514,19 +617,72 @@
 
   const mountPalette = () => {
     tray.innerHTML = '';
-    palette.forEach((p) => {
-      const btn = document.createElement('button');
-      btn.className = 'color-bin';
-      btn.title = p.name;
-      if (p.value === state.selected) btn.classList.add('active');
-      btn.innerHTML = `<div class="bead-sample" style="--c:${p.value || '#888'}"></div>`;
-      btn.onclick = () => {
-        state.selected = p.value;
+
+    colorFamilies.forEach((family) => {
+      const familyColors = paintColors.filter((item) => item.code.startsWith(family.prefix));
+      if (!familyColors.length) return;
+
+      const selectedCode = state.familySelections[family.prefix] || familyColors[0].code;
+      const activeColor = familyColors.find((item) => item.code === selectedCode) || familyColors[0];
+      state.familySelections[family.prefix] = activeColor.code;
+
+      const block = document.createElement('div');
+      block.className = 'family-bin';
+      if (state.selected === activeColor.value) block.classList.add('active');
+
+      const swatch = document.createElement('button');
+      swatch.className = 'family-swatch';
+      swatch.title = `${family.name}（${activeColor.code}）`;
+      swatch.innerHTML = `<div class="bead-sample" style="--c:${activeColor.value}"></div><span>${family.prefix}</span>`;
+      swatch.onclick = () => {
+        state.selected = activeColor.value;
+        state.activeFamily = family.prefix;
         mountPalette();
+        renderTargetLegend();
         requestDraw();
       };
-      tray.appendChild(btn);
+
+      const selector = document.createElement('select');
+      selector.className = 'family-select';
+      familyColors.forEach((item) => {
+        const op = document.createElement('option');
+        op.value = item.code;
+        op.textContent = item.code.replace(family.prefix, '');
+        selector.appendChild(op);
+      });
+      selector.value = activeColor.code;
+      selector.onchange = (e) => {
+        const picked = familyColors.find((item) => item.code === e.target.value);
+        if (!picked) return;
+        state.familySelections[family.prefix] = picked.code;
+        state.selected = picked.value;
+        state.activeFamily = family.prefix;
+        mountPalette();
+        renderTargetLegend();
+        requestDraw();
+      };
+
+      const tag = document.createElement('div');
+      tag.className = 'family-tag';
+      tag.textContent = `${family.prefix} ${family.name}`;
+
+      block.appendChild(swatch);
+      block.appendChild(selector);
+      block.appendChild(tag);
+      tray.appendChild(block);
     });
+
+    const eraserBtn = document.createElement('button');
+    eraserBtn.className = 'family-bin eraser-bin';
+    if (state.selected === null) eraserBtn.classList.add('active');
+    eraserBtn.innerHTML = '<span class="eraser-mark">橡皮擦</span>';
+    eraserBtn.onclick = () => {
+      state.selected = null;
+      mountPalette();
+      renderTargetLegend();
+      requestDraw();
+    };
+    tray.appendChild(eraserBtn);
   };
 
   const resize = () => {
@@ -553,6 +709,7 @@
   document.getElementById('modeBtn').onclick = (e) => {
     state.displayMode = state.displayMode === 'code' ? 'color' : 'code';
     e.currentTarget.textContent = `模式：${state.displayMode === 'code' ? '色号' : '目标颜色'}`;
+    renderTargetLegend();
     requestDraw();
   };
 
@@ -610,5 +767,6 @@
 
   mountPalette();
   loadCatPattern();
+  renderTargetLegend();
   resize();
 })();
