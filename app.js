@@ -3,6 +3,14 @@
   const ctx = canvas.getContext('2d');
   const tray = document.getElementById('tray');
   const targetLegend = document.getElementById('targetLegend');
+  const imageInput = document.getElementById('imageInput');
+  const templateInput = document.getElementById('templateInput');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressText = document.getElementById('progressText');
+  const kmeansProgress = document.getElementById('kmeansProgress');
+  const cropModal = document.getElementById('cropModal');
+  const cropCanvas = document.getElementById('cropCanvas');
+  const cropCtx = cropCanvas.getContext('2d');
 
   const boardThickness = 26;
   const MIN_GRID = 8;
@@ -98,7 +106,9 @@
     dragging: false,
     pointer: { x: 0, y: 0, inside: false },
     yawAngle: 0,
-    sourceImage: null
+    sourceImage: null,
+    converting: false,
+    cropSession: null
   };
 
   const colorDist = (a, b) => {
@@ -497,11 +507,28 @@
     requestDraw();
   };
 
-  const runKMeans = (pixels, k, iterations = 10) => {
+  const updateProgress = (value, message = '') => {
+    const clamped = Math.max(0, Math.min(100, Math.round(value)));
+    kmeansProgress.value = clamped;
+    progressText.textContent = message || `KMeans 进度：${clamped}%`;
+  };
+
+  const setConverting = (converting) => {
+    state.converting = converting;
+    progressWrap.classList.toggle('visible', converting);
+    document.getElementById('convertBtn').disabled = converting;
+    document.getElementById('fitBtn').disabled = converting;
+    document.getElementById('exportTemplateBtn').disabled = converting;
+    if (!converting) updateProgress(0, 'KMeans 进度：0%');
+  };
+
+  const runKMeans = async (pixels, k, iterations = 10) => {
     const centers = [];
     const step = Math.max(1, Math.floor(pixels.length / k));
     for (let i = 0; i < k; i++) centers.push([...pixels[Math.min(i * step, pixels.length - 1)]]);
     const labels = new Array(pixels.length).fill(0);
+    const totalOps = iterations * 2;
+    let completedOps = 0;
 
     for (let iter = 0; iter < iterations; iter++) {
       for (let i = 0; i < pixels.length; i++) {
@@ -516,6 +543,10 @@
         }
         labels[i] = best;
       }
+      completedOps++;
+      updateProgress(8 + (completedOps / totalOps) * 86, `KMeans 聚类中：${iter + 1}/${iterations}`);
+      // 让 UI 有机会刷新进度
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       const sums = Array.from({ length: k }, () => [0, 0, 0, 0]);
       for (let i = 0; i < pixels.length; i++) {
@@ -529,33 +560,31 @@
         if (!sums[c][3]) continue;
         centers[c] = [sums[c][0] / sums[c][3], sums[c][1] / sums[c][3], sums[c][2] / sums[c][3]];
       }
+      completedOps++;
+      updateProgress(8 + (completedOps / totalOps) * 86, `KMeans 聚类中：${iter + 1}/${iterations}`);
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
     return { centers, labels };
   };
 
-  const imageToTemplate = (img, k) => {
+  const imageToTemplate = async (img, k, crop) => {
     const off = document.createElement('canvas');
     off.width = state.cols;
     off.height = state.rows;
     const octx = off.getContext('2d');
     octx.clearRect(0, 0, state.cols, state.rows);
 
-    const scale = Math.min(state.cols / img.width, state.rows / img.height);
-    const dw = Math.max(1, Math.floor(img.width * scale));
-    const dh = Math.max(1, Math.floor(img.height * scale));
-    const dx = Math.floor((state.cols - dw) / 2);
-    const dy = Math.floor((state.rows - dh) / 2);
-
     octx.fillStyle = '#f5f1e9';
     octx.fillRect(0, 0, state.cols, state.rows);
-    octx.drawImage(img, 0, 0, img.width, img.height, dx, dy, dw, dh);
+    octx.drawImage(img, 0, 0, img.width, img.height, crop.dx, crop.dy, crop.dw, crop.dh);
 
     const imgData = octx.getImageData(0, 0, state.cols, state.rows).data;
     const pixels = [];
     for (let i = 0; i < imgData.length; i += 4) pixels.push([imgData[i], imgData[i + 1], imgData[i + 2]]);
+    updateProgress(5, 'KMeans 预处理中…');
 
-    const { centers, labels } = runKMeans(pixels, k, 12);
+    const { centers, labels } = await runKMeans(pixels, k, 12);
     const centerToHex = centers.map((c) => nearestPaletteHex(c));
 
     state.targetGrid = createGrid(state.rows, state.cols);
@@ -563,6 +592,104 @@
     for (let r = 0; r < state.rows; r++) {
       for (let c = 0; c < state.cols; c++) {
         state.targetGrid[r][c] = centerToHex[labels[idx++]];
+      }
+    }
+    updateProgress(100, 'KMeans 完成');
+    renderTargetLegend();
+    requestDraw();
+  };
+
+  const drawCropPreview = () => {
+    const session = state.cropSession;
+    if (!session) return;
+    const { img, scale, offsetX, offsetY } = session;
+    cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+    cropCtx.fillStyle = '#f5f1e9';
+    cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+
+    const boardAspect = state.cols / state.rows;
+    let frameW = cropCanvas.width * 0.78;
+    let frameH = frameW / boardAspect;
+    if (frameH > cropCanvas.height * 0.82) {
+      frameH = cropCanvas.height * 0.82;
+      frameW = frameH * boardAspect;
+    }
+    const frameX = (cropCanvas.width - frameW) / 2;
+    const frameY = (cropCanvas.height - frameH) / 2;
+    session.frame = { frameX, frameY, frameW, frameH };
+
+    const imgW = img.width * scale;
+    const imgH = img.height * scale;
+    cropCtx.drawImage(img, offsetX, offsetY, imgW, imgH);
+
+    cropCtx.save();
+    cropCtx.fillStyle = 'rgba(0,0,0,0.45)';
+    cropCtx.beginPath();
+    cropCtx.rect(0, 0, cropCanvas.width, cropCanvas.height);
+    cropCtx.rect(frameX, frameY, frameW, frameH);
+    cropCtx.fill('evenodd');
+    cropCtx.restore();
+
+    cropCtx.strokeStyle = '#fff';
+    cropCtx.lineWidth = 2;
+    cropCtx.strokeRect(frameX, frameY, frameW, frameH);
+  };
+
+  const openCropModal = (img, onConfirm) => {
+    const baseScale = Math.max((cropCanvas.width * 0.5) / img.width, (cropCanvas.height * 0.5) / img.height);
+    state.cropSession = {
+      img,
+      scale: baseScale,
+      offsetX: (cropCanvas.width - img.width * baseScale) / 2,
+      offsetY: (cropCanvas.height - img.height * baseScale) / 2,
+      dragging: false,
+      lastX: 0,
+      lastY: 0,
+      onConfirm,
+      frame: null
+    };
+    cropModal.classList.remove('hidden');
+    drawCropPreview();
+  };
+
+  const closeCropModal = () => {
+    cropModal.classList.add('hidden');
+    state.cropSession = null;
+    cropCanvas.classList.remove('dragging');
+  };
+
+  const exportTemplate = () => {
+    const pixel = 12;
+    const out = document.createElement('canvas');
+    out.width = state.cols * pixel;
+    out.height = state.rows * pixel;
+    const outCtx = out.getContext('2d');
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        outCtx.fillStyle = state.targetGrid[r][c] || '#f5f1e9';
+        outCtx.fillRect(c * pixel, r * pixel, pixel, pixel);
+      }
+    }
+    const a = document.createElement('a');
+    a.download = `template-${state.cols}x${state.rows}.png`;
+    a.href = out.toDataURL('image/png');
+    a.click();
+  };
+
+  const importTemplateFromImage = (img) => {
+    const off = document.createElement('canvas');
+    off.width = state.cols;
+    off.height = state.rows;
+    const octx = off.getContext('2d');
+    octx.drawImage(img, 0, 0, state.cols, state.rows);
+    const data = octx.getImageData(0, 0, state.cols, state.rows).data;
+    state.targetGrid = createGrid(state.rows, state.cols);
+    let idx = 0;
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        const rgb = [data[idx], data[idx + 1], data[idx + 2]];
+        state.targetGrid[r][c] = nearestPaletteHex(rgb);
+        idx += 4;
       }
     }
     renderTargetLegend();
@@ -713,7 +840,7 @@
     requestDraw();
   };
 
-  document.getElementById('imageInput').addEventListener('change', (e) => {
+  imageInput.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const img = new Image();
@@ -723,18 +850,102 @@
     img.src = URL.createObjectURL(file);
   });
 
+  templateInput.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => importTemplateFromImage(img);
+    img.src = URL.createObjectURL(file);
+  });
+
+  document.getElementById('exportTemplateBtn').onclick = exportTemplate;
+
   document.getElementById('convertBtn').onclick = () => {
+    if (state.converting) return;
     if (!state.sourceImage) return alert('请先上传图片');
     const k = Number(document.getElementById('kInput').value) || 6;
-    imageToTemplate(state.sourceImage, Math.min(12, Math.max(2, k)));
+    openCropModal(state.sourceImage, async (crop) => {
+      setConverting(true);
+      try {
+        await imageToTemplate(state.sourceImage, Math.min(12, Math.max(2, k)), crop);
+      } finally {
+        setConverting(false);
+      }
+    });
   };
 
   document.getElementById('fitBtn').onclick = () => {
+    if (state.converting) return;
     if (!state.sourceImage) return alert('请先上传图片');
     state.grid = createGrid(state.rows, state.cols);
     const k = Number(document.getElementById('kInput').value) || 6;
-    imageToTemplate(state.sourceImage, Math.min(12, Math.max(2, k)));
+    openCropModal(state.sourceImage, async (crop) => {
+      setConverting(true);
+      try {
+        await imageToTemplate(state.sourceImage, Math.min(12, Math.max(2, k)), crop);
+      } finally {
+        setConverting(false);
+      }
+    });
   };
+
+  document.getElementById('cropCancelBtn').onclick = closeCropModal;
+  document.getElementById('cropConfirmBtn').onclick = async () => {
+    const session = state.cropSession;
+    if (!session) return;
+    const { img, scale, offsetX, offsetY, frame, onConfirm } = session;
+    const crop = {
+      dx: (frame.frameX - offsetX) * (state.cols / frame.frameW),
+      dy: (frame.frameY - offsetY) * (state.rows / frame.frameH),
+      dw: img.width * scale * (state.cols / frame.frameW),
+      dh: img.height * scale * (state.rows / frame.frameH)
+    };
+    closeCropModal();
+    await onConfirm(crop);
+  };
+
+  cropCanvas.addEventListener('pointerdown', (e) => {
+    const session = state.cropSession;
+    if (!session) return;
+    session.dragging = true;
+    session.lastX = e.clientX;
+    session.lastY = e.clientY;
+    cropCanvas.classList.add('dragging');
+  });
+
+  cropCanvas.addEventListener('pointermove', (e) => {
+    const session = state.cropSession;
+    if (!session?.dragging) return;
+    const dx = e.clientX - session.lastX;
+    const dy = e.clientY - session.lastY;
+    session.lastX = e.clientX;
+    session.lastY = e.clientY;
+    session.offsetX += dx;
+    session.offsetY += dy;
+    drawCropPreview();
+  });
+
+  window.addEventListener('pointerup', () => {
+    if (!state.cropSession) return;
+    state.cropSession.dragging = false;
+    cropCanvas.classList.remove('dragging');
+  });
+
+  cropCanvas.addEventListener('wheel', (e) => {
+    const session = state.cropSession;
+    if (!session) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.08 : 0.92;
+    const nextScale = Math.max(0.05, Math.min(20, session.scale * factor));
+    const rect = cropCanvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const ratio = nextScale / session.scale;
+    session.offsetX = px - (px - session.offsetX) * ratio;
+    session.offsetY = py - (py - session.offsetY) * ratio;
+    session.scale = nextScale;
+    drawCropPreview();
+  }, { passive: false });
 
   canvas.addEventListener('pointerdown', (e) => {
     state.dragging = true;
