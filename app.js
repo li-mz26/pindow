@@ -252,34 +252,34 @@
   };
 
   const drawBeadAtCell = (c, r, color) => {
+    const p1 = project(c, r);
+    const p2 = project(c + 1, r);
+    const p3 = project(c + 1, r + 1);
+    const p4 = project(c, r + 1);
     const center = project(c + 0.5, r + 0.5);
-    const pu = project(c + 0.92, r + 0.5);
-    const pv = project(c + 0.5, r + 0.92);
-    const vx = { x: pu.x - center.x, y: pu.y - center.y };
-    const vy = { x: pv.x - center.x, y: pv.y - center.y };
 
-    const drawIsoDiamond = (scale, yOffset = 0) => {
+    const drawInsetCell = (scale, yOffset = 0) => {
       ctx.beginPath();
-      ctx.moveTo(center.x + vx.x * scale, center.y + vx.y * scale + yOffset);
-      ctx.lineTo(center.x + vy.x * scale, center.y + vy.y * scale + yOffset);
-      ctx.lineTo(center.x - vx.x * scale, center.y - vx.y * scale + yOffset);
-      ctx.lineTo(center.x - vy.x * scale, center.y - vy.y * scale + yOffset);
+      ctx.moveTo(center.x + (p1.x - center.x) * scale, center.y + (p1.y - center.y) * scale + yOffset);
+      ctx.lineTo(center.x + (p2.x - center.x) * scale, center.y + (p2.y - center.y) * scale + yOffset);
+      ctx.lineTo(center.x + (p3.x - center.x) * scale, center.y + (p3.y - center.y) * scale + yOffset);
+      ctx.lineTo(center.x + (p4.x - center.x) * scale, center.y + (p4.y - center.y) * scale + yOffset);
       ctx.closePath();
     };
 
-    drawIsoDiamond(0.95, -4);
+    drawInsetCell(0.9, -4);
     ctx.fillStyle = color;
     ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,0.12)';
     ctx.stroke();
 
-    drawIsoDiamond(0.82, -1);
+    drawInsetCell(0.78, -1);
     ctx.fillStyle = color;
     ctx.globalAlpha = 0.9;
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    drawIsoDiamond(0.2, -3);
+    drawInsetCell(0.2, -3);
     ctx.fillStyle = 'rgba(120,100,90,0.3)';
     ctx.fill();
   };
