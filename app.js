@@ -171,10 +171,15 @@
   const drawTargetGrid = () => {
     const s = unit();
     const rx = s, ry = s * 0.55;
+    const axisU = project(1, 0);
+    const axisO = project(0, 0);
+    const textAngle = Math.atan2(axisU.y - axisO.y, axisU.x - axisO.x);
+
     for (let r = 0; r < state.rows; r++) {
       for (let c = 0; c < state.cols; c++) {
         const centerP = project(c + 0.5, r + 0.5);
         const t = state.targetGrid[r]?.[c];
+
         if (t) {
           drawDiamond(centerP.x, centerP.y, rx * 0.95, ry * 0.95);
           if (state.displayMode === 'color') {
@@ -183,21 +188,29 @@
           } else {
             ctx.fillStyle = 'rgba(255,255,255,0.78)';
             ctx.fill();
+            ctx.save();
+            ctx.translate(centerP.x, centerP.y + 1);
+            ctx.rotate(textAngle);
             ctx.fillStyle = '#5f4f47';
             ctx.font = `${Math.max(8, s * 0.42)}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(colorToCode[t] || '--', centerP.x, centerP.y + 1);
+            ctx.fillText(colorToCode[t] || '--', 0, 0);
+            ctx.restore();
           }
         }
+
         drawDiamond(centerP.x, centerP.y, rx, ry);
         ctx.strokeStyle = 'rgba(183,146,104,0.45)';
         ctx.lineWidth = 1;
         ctx.stroke();
-        ctx.beginPath();
+
+        drawDiamond(centerP.x, centerP.y, s * 0.16, s * 0.09);
         ctx.fillStyle = '#efc59d';
-        ctx.arc(centerP.x, centerP.y, s * 0.12, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = 'rgba(145,115,90,0.25)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
       }
     }
   };
