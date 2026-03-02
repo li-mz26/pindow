@@ -165,19 +165,38 @@
       const h = canvas.clientHeight;
       return Math.min(w / (COLS + ROWS + 8), h / ((COLS + ROWS) * 0.62 + 12));
     }
-    function center() {
-      return { x: canvas.clientWidth * 0.54, y: canvas.clientHeight * 0.23 };
-    }
-    function project(u, v) {
+    function projectRaw(u, v) {
       const { ct, st } = basis();
       const xr = u * ct - v * st;
       const yr = u * st + v * ct;
       const s = unit();
-      const c = center();
-      return { x: c.x + (xr - yr) * s, y: c.y + (xr + yr) * s * 0.55 };
+      return { x: (xr - yr) * s, y: (xr + yr) * s * 0.55 };
+    }
+    function boardCenterOffset() {
+      const corners = [
+        projectRaw(0, 0),
+        projectRaw(COLS, 0),
+        projectRaw(COLS, ROWS),
+        projectRaw(0, ROWS)
+      ];
+      const minX = Math.min(...corners.map((p) => p.x));
+      const maxX = Math.max(...corners.map((p) => p.x));
+      const minY = Math.min(...corners.map((p) => p.y));
+      const maxY = Math.max(...corners.map((p) => p.y));
+      const boardMidX = (minX + maxX) / 2;
+      const boardMidY = (minY + maxY) / 2;
+      return {
+        x: canvas.clientWidth / 2 - boardMidX,
+        y: canvas.clientHeight / 2 - boardMidY
+      };
+    }
+    function project(u, v) {
+      const p = projectRaw(u, v);
+      const c = boardCenterOffset();
+      return { x: p.x + c.x, y: p.y + c.y };
     }
     function unproject(px, py) {
-      const c = center();
+      const c = boardCenterOffset();
       const s = unit();
       const A = (px - c.x) / s;
       const B = (py - c.y) / (s * 0.55);
