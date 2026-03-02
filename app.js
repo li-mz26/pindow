@@ -60,54 +60,53 @@
     return best;
   };
 
-  const basis = () => ({ ct: Math.cos(state.yawAngle), st: Math.sin(state.yawAngle) });
+  const projectionCache = { key: '', data: null };
 
-  const unit = () => {
+  const getProjection = () => {
+    const key = [state.cols, state.rows, state.zoom, state.yawAngle.toFixed(4), canvas.clientWidth, canvas.clientHeight].join('|');
+    if (projectionCache.key === key && projectionCache.data) return projectionCache.data;
+
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
     const base = Math.min(w / (state.cols + state.rows + 8), h / ((state.cols + state.rows) * 0.62 + 12));
-    return base * state.zoom;
-  };
+    const s = base * state.zoom;
+    const ct = Math.cos(state.yawAngle);
+    const st = Math.sin(state.yawAngle);
 
-  const projectRaw = (u, v) => {
-    const { ct, st } = basis();
-    const xr = u * ct - v * st;
-    const yr = u * st + v * ct;
-    const s = unit();
-    return { x: (xr - yr) * s, y: (xr + yr) * s * 0.55 };
-  };
+    const raw = (u, v) => {
+      const xr = u * ct - v * st;
+      const yr = u * st + v * ct;
+      return { x: (xr - yr) * s, y: (xr + yr) * s * 0.55 };
+    };
 
-  const boardCenterOffset = () => {
-    const corners = [
-      projectRaw(0, 0),
-      projectRaw(state.cols, 0),
-      projectRaw(state.cols, state.rows),
-      projectRaw(0, state.rows)
-    ];
+    const corners = [raw(0, 0), raw(state.cols, 0), raw(state.cols, state.rows), raw(0, state.rows)];
     const minX = Math.min(...corners.map((p) => p.x));
     const maxX = Math.max(...corners.map((p) => p.x));
     const minY = Math.min(...corners.map((p) => p.y));
     const maxY = Math.max(...corners.map((p) => p.y));
-    return {
-      x: canvas.clientWidth / 2 - (minX + maxX) / 2,
-      y: canvas.clientHeight / 2 - (minY + maxY) / 2
-    };
+    const offX = canvas.clientWidth / 2 - (minX + maxX) / 2;
+    const offY = canvas.clientHeight / 2 - (minY + maxY) / 2;
+
+    projectionCache.key = key;
+    projectionCache.data = { s, ct, st, offX, offY };
+    return projectionCache.data;
   };
 
+  const unit = () => getProjection().s;
+
   const project = (u, v) => {
-    const p = projectRaw(u, v);
-    const c = boardCenterOffset();
-    return { x: p.x + c.x, y: p.y + c.y };
+    const { s, ct, st, offX, offY } = getProjection();
+    const xr = u * ct - v * st;
+    const yr = u * st + v * ct;
+    return { x: (xr - yr) * s + offX, y: (xr + yr) * s * 0.55 + offY };
   };
 
   const unproject = (px, py) => {
-    const c = boardCenterOffset();
-    const s = unit();
-    const A = (px - c.x) / s;
-    const B = (py - c.y) / (s * 0.55);
+    const { s, ct, st, offX, offY } = getProjection();
+    const A = (px - offX) / s;
+    const B = (py - offY) / (s * 0.55);
     const xr = (A + B) / 2;
     const yr = (B - A) / 2;
-    const { ct, st } = basis();
     return { u: xr * ct + yr * st, v: -xr * st + yr * ct };
   };
 
@@ -282,12 +281,22 @@
     drawTweezers();
   };
 
+  let drawQueued = false;
+  const requestDraw = () => {
+    if (drawQueued) return;
+    drawQueued = true;
+    requestAnimationFrame(() => {
+      drawQueued = false;
+      draw();
+    });
+  };
+
   const paintAt = (clientX, clientY, erase = false) => {
     const cell = toCell(clientX, clientY);
     if (!cell) return;
     if (erase || state.selected === null) state.grid[cell.r][cell.c] = null;
     else if (!state.grid[cell.r][cell.c]) state.grid[cell.r][cell.c] = state.selected;
-    draw();
+    requestDraw();
   };
 
   const runKMeans = (pixels, k, iterations = 10) => {
@@ -358,7 +367,7 @@
         state.targetGrid[r][c] = centerToHex[labels[idx++]];
       }
     }
-    draw();
+    requestDraw();
   };
 
   const loadCatPattern = () => {
@@ -383,7 +392,7 @@
         if (ch === '2') state.targetGrid[rr][cc] = '#D7D7D7';
       });
     });
-    draw();
+    requestDraw();
   };
 
   const applyBoardSize = () => {
@@ -397,13 +406,13 @@
     state.grid = createGrid(rows, cols);
     state.targetGrid = createGrid(rows, cols);
     loadCatPattern();
-    draw();
+    requestDraw();
   };
 
   const rotateBySmallStep = (dir) => {
     const step = Math.PI / 36; // 5度/次
     state.yawAngle += dir * step;
-    draw();
+    requestDraw();
   };
 
   const mountPalette = () => {
@@ -417,7 +426,7 @@
       btn.onclick = () => {
         state.selected = p.value;
         mountPalette();
-        draw();
+        requestDraw();
       };
       tray.appendChild(btn);
     });
@@ -430,12 +439,12 @@
     canvas.width = Math.floor(w * ratio);
     canvas.height = Math.floor(h * ratio);
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    draw();
+    requestDraw();
   };
 
   document.getElementById('clearBtn').onclick = () => {
     state.grid = createGrid(state.rows, state.cols);
-    draw();
+    requestDraw();
   };
   document.getElementById('catBtn').onclick = loadCatPattern;
   document.getElementById('rotLBtn').onclick = () => rotateBySmallStep(-1);
@@ -445,7 +454,7 @@
   document.getElementById('modeBtn').onclick = (e) => {
     state.displayMode = state.displayMode === 'code' ? 'color' : 'code';
     e.currentTarget.textContent = `模式：${state.displayMode === 'code' ? '色号' : '目标颜色'}`;
-    draw();
+    requestDraw();
   };
 
   document.getElementById('imageInput').addEventListener('change', (e) => {
@@ -480,14 +489,14 @@
     const rect = canvas.getBoundingClientRect();
     state.pointer = { x: e.clientX - rect.left, y: e.clientY - rect.top, inside: true };
     if (state.dragging) paintAt(e.clientX, e.clientY, e.buttons === 2);
-    else draw();
+    else requestDraw();
   });
 
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.08 : 0.08;
     state.zoom = Math.max(0.4, Math.min(2.4, state.zoom + delta));
-    draw();
+    requestDraw();
   }, { passive: false });
 
   window.addEventListener('pointerup', () => {
@@ -495,7 +504,7 @@
   });
   canvas.addEventListener('pointerleave', () => {
     state.pointer.inside = false;
-    draw();
+    requestDraw();
   });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   window.addEventListener('resize', resize);
