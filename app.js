@@ -476,8 +476,10 @@
 
   const staticLayer = document.createElement('canvas');
   const beadsLayer = document.createElement('canvas');
+  const blinkLayer = document.createElement('canvas');
   const staticCtx = staticLayer.getContext('2d');
   const beadsCtx = beadsLayer.getContext('2d');
+  const blinkCtx = blinkLayer.getContext('2d');
   let staticDirty = true;
   let beadsDirty = true;
 
@@ -531,11 +533,19 @@
       beadsDirty = false;
     }
 
+    let blinking = false;
+    withCtx(blinkCtx, () => {
+      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      blinking = drawTargetBlinkOverlay();
+    });
+
     mainCtx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     mainCtx.drawImage(staticLayer, 0, 0, staticLayer.width, staticLayer.height, 0, 0, canvas.clientWidth, canvas.clientHeight);
     mainCtx.drawImage(beadsLayer, 0, 0, beadsLayer.width, beadsLayer.height, 0, 0, canvas.clientWidth, canvas.clientHeight);
+    if (blinking) {
+      mainCtx.drawImage(blinkLayer, 0, 0, blinkLayer.width, blinkLayer.height, 0, 0, canvas.clientWidth, canvas.clientHeight);
+    }
 
-    const blinking = drawTargetBlinkOverlay();
     drawTweezers();
     if (blinking) requestDraw(false);
   };
@@ -882,9 +892,12 @@
     staticLayer.height = canvas.height;
     beadsLayer.width = canvas.width;
     beadsLayer.height = canvas.height;
+    blinkLayer.width = canvas.width;
+    blinkLayer.height = canvas.height;
     mainCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
     staticCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
     beadsCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    blinkCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
     projectionCache.key = '';
     staticDirty = true;
     beadsDirty = true;
