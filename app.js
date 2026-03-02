@@ -319,7 +319,10 @@
     ctx.restore();
   };
 
-  const draw = () => {
+  let cachedBaseImage = null;
+  let sceneDirty = true;
+
+  const drawScene = () => {
     ctx.fillStyle = '#efe4c6';
     ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     drawBoardBase();
@@ -329,16 +332,27 @@
         if (state.grid[r]?.[c]) drawBeadAtCell(c, r, state.grid[r][c]);
       }
     }
+  };
+
+  const renderFrame = () => {
+    if (sceneDirty || !cachedBaseImage) {
+      drawScene();
+      cachedBaseImage = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      sceneDirty = false;
+    } else {
+      ctx.putImageData(cachedBaseImage, 0, 0);
+    }
     drawTweezers();
   };
 
   let drawQueued = false;
-  const requestDraw = () => {
+  const requestDraw = (full = true) => {
+    if (full) sceneDirty = true;
     if (drawQueued) return;
     drawQueued = true;
     requestAnimationFrame(() => {
       drawQueued = false;
-      draw();
+      renderFrame();
     });
   };
 
@@ -490,6 +504,8 @@
     canvas.width = Math.floor(w * ratio);
     canvas.height = Math.floor(h * ratio);
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    cachedBaseImage = null;
+    sceneDirty = true;
     requestDraw();
   };
 
@@ -540,7 +556,7 @@
     const rect = canvas.getBoundingClientRect();
     state.pointer = { x: e.clientX - rect.left, y: e.clientY - rect.top, inside: true };
     if (state.dragging) paintAt(e.clientX, e.clientY, e.buttons === 2);
-    else requestDraw();
+    else requestDraw(false);
   });
 
   canvas.addEventListener('wheel', (e) => {
@@ -555,7 +571,7 @@
   });
   canvas.addEventListener('pointerleave', () => {
     state.pointer.inside = false;
-    requestDraw();
+    requestDraw(false);
   });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   window.addEventListener('resize', resize);
