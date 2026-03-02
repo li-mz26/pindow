@@ -141,6 +141,8 @@
       for (let c = 0; c < state.cols; c++) {
         const t = state.targetGrid[r]?.[c];
         if (!t || t !== state.selected) continue;
+        // 已正确填充的格子不再高亮闪烁
+        if (state.grid[r]?.[c] === t) continue;
         hasMatch = true;
         drawProjectedCell(c + 0.03, r + 0.03);
         ctx.fillStyle = `rgba(255, 243, 122, ${fillAlpha.toFixed(3)})`;
