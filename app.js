@@ -1,6 +1,7 @@
 (() => {
   const canvas = document.getElementById('board');
-  const ctx = canvas.getContext('2d');
+  let ctx = canvas.getContext('2d');
+  const mainCtx = ctx;
   const tray = document.getElementById('tray');
   const targetLegend = document.getElementById('targetLegend');
   const imageInput = document.getElementById('imageInput');
@@ -15,7 +16,6 @@
   const boardThickness = 26;
   const MIN_GRID = 8;
   const MAX_GRID = 120;
-  const LOW_QUALITY_CELL_THRESHOLD = 5000;
 
   const hexToRgb = (hex) => {
     const v = hex.replace('#', '');
@@ -112,7 +112,19 @@
     cropSession: null
   };
 
-  const isLowQualityMode = () => state.rows * state.cols >= LOW_QUALITY_CELL_THRESHOLD;
+  const targetCellsByColor = new Map();
+
+  const rebuildTargetCellIndex = () => {
+    targetCellsByColor.clear();
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        const t = state.targetGrid[r]?.[c];
+        if (!t) continue;
+        if (!targetCellsByColor.has(t)) targetCellsByColor.set(t, []);
+        targetCellsByColor.get(t).push([r, c]);
+      }
+    }
+  };
 
   const colorDist = (a, b) => {
     const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
@@ -144,17 +156,17 @@
   };
 
   const drawTargetBlinkOverlay = () => {
-    if (isLowQualityMode()) return false;
     if (!state.selected) return false;
     const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 220);
     const fillAlpha = 0.1 + pulse * 0.25;
     const strokeAlpha = 0.35 + pulse * 0.55;
     let hasMatch = false;
 
-    for (let r = 0; r < state.rows; r++) {
-      for (let c = 0; c < state.cols; c++) {
-        const t = state.targetGrid[r]?.[c];
-        if (!t || t !== state.selected) continue;
+    const cells = targetCellsByColor.get(state.selected) || [];
+    for (let i = 0; i < cells.length; i++) {
+      const [r, c] = cells[i];
+      const t = state.targetGrid[r]?.[c];
+      if (!t || t !== state.selected) continue;
         // 已正确填充的格子不再高亮闪烁
         if (state.grid[r]?.[c] === t) continue;
         hasMatch = true;
@@ -164,7 +176,6 @@
         ctx.strokeStyle = `rgba(255, 125, 60, ${strokeAlpha.toFixed(3)})`;
         ctx.lineWidth = 1.6;
         ctx.stroke();
-      }
     }
 
     return hasMatch;
@@ -329,7 +340,6 @@
     const axisU = project(1, 0);
     const axisO = project(0, 0);
     const textAngle = Math.atan2(axisU.y - axisO.y, axisU.x - axisO.x);
-    const lowQuality = isLowQualityMode();
 
     for (let r = 0; r < state.rows; r++) {
       for (let c = 0; c < state.cols; c++) {
@@ -337,42 +347,36 @@
         const t = state.targetGrid[r]?.[c];
 
         if (t) {
-          if (lowQuality) {
-            drawProjectedCell(c, r);
-            ctx.fillStyle = state.displayMode === 'color' ? `${t}55` : 'rgba(255,255,255,0.78)';
+          drawProjectedCell(c + 0.06, r + 0.06);
+          // 内层引导块用缩小单元格（通过缩放到中心点实现）
+          ctx.save();
+          ctx.translate(centerP.x, centerP.y);
+          const p1 = project(c, r); const p2 = project(c + 1, r); const p3 = project(c + 1, r + 1); const p4 = project(c, r + 1);
+          ctx.beginPath();
+          ctx.moveTo((p1.x - centerP.x) * 0.92, (p1.y - centerP.y) * 0.92);
+          ctx.lineTo((p2.x - centerP.x) * 0.92, (p2.y - centerP.y) * 0.92);
+          ctx.lineTo((p3.x - centerP.x) * 0.92, (p3.y - centerP.y) * 0.92);
+          ctx.lineTo((p4.x - centerP.x) * 0.92, (p4.y - centerP.y) * 0.92);
+          ctx.closePath();
+          if (state.displayMode === 'color') {
+            ctx.fillStyle = `${t}55`;
             ctx.fill();
           } else {
-            drawProjectedCell(c + 0.06, r + 0.06);
-            // 内层引导块用缩小单元格（通过缩放到中心点实现）
-            ctx.save();
-            ctx.translate(centerP.x, centerP.y);
-            const p1 = project(c, r); const p2 = project(c + 1, r); const p3 = project(c + 1, r + 1); const p4 = project(c, r + 1);
-            ctx.beginPath();
-            ctx.moveTo((p1.x - centerP.x) * 0.92, (p1.y - centerP.y) * 0.92);
-            ctx.lineTo((p2.x - centerP.x) * 0.92, (p2.y - centerP.y) * 0.92);
-            ctx.lineTo((p3.x - centerP.x) * 0.92, (p3.y - centerP.y) * 0.92);
-            ctx.lineTo((p4.x - centerP.x) * 0.92, (p4.y - centerP.y) * 0.92);
-            ctx.closePath();
-            if (state.displayMode === 'color') {
-              ctx.fillStyle = `${t}55`;
-              ctx.fill();
-            } else {
-              ctx.fillStyle = 'rgba(255,255,255,0.78)';
-              ctx.fill();
-            }
-            ctx.restore();
+            ctx.fillStyle = 'rgba(255,255,255,0.78)';
+            ctx.fill();
+          }
+          ctx.restore();
 
-            if (state.displayMode === 'code') {
-              ctx.save();
-              ctx.translate(centerP.x, centerP.y + 1);
-              ctx.rotate(textAngle);
-              ctx.fillStyle = '#5f4f47';
-              ctx.font = `${Math.max(8, s * 0.42)}px sans-serif`;
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(colorToCode[t] || '--', 0, 0);
-              ctx.restore();
-            }
+          if (state.displayMode === 'code') {
+            ctx.save();
+            ctx.translate(centerP.x, centerP.y + 1);
+            ctx.rotate(textAngle);
+            ctx.fillStyle = '#5f4f47';
+            ctx.font = `${Math.max(8, s * 0.42)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(colorToCode[t] || '--', 0, 0);
+            ctx.restore();
           }
         }
 
@@ -382,24 +386,22 @@
         ctx.stroke();
 
         // 中央孔位：使用与当前单元一致的方向矢量绘制小菱形
-        if (!lowQuality) {
-          const px = project(c + 0.5, r + 0.5);
-          const pu = project(c + 0.58, r + 0.5);
-          const pv = project(c + 0.5, r + 0.58);
-          const vx = { x: pu.x - px.x, y: pu.y - px.y };
-          const vy = { x: pv.x - px.x, y: pv.y - px.y };
-          ctx.beginPath();
-          ctx.moveTo(px.x + vx.x, px.y + vx.y);
-          ctx.lineTo(px.x + vy.x, px.y + vy.y);
-          ctx.lineTo(px.x - vx.x, px.y - vx.y);
-          ctx.lineTo(px.x - vy.x, px.y - vy.y);
-          ctx.closePath();
-          ctx.fillStyle = '#efc59d';
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(145,115,90,0.25)';
-          ctx.lineWidth = 0.8;
-          ctx.stroke();
-        }
+        const px = project(c + 0.5, r + 0.5);
+        const pu = project(c + 0.58, r + 0.5);
+        const pv = project(c + 0.5, r + 0.58);
+        const vx = { x: pu.x - px.x, y: pu.y - px.y };
+        const vy = { x: pv.x - px.x, y: pv.y - px.y };
+        ctx.beginPath();
+        ctx.moveTo(px.x + vx.x, px.y + vx.y);
+        ctx.lineTo(px.x + vy.x, px.y + vy.y);
+        ctx.lineTo(px.x - vx.x, px.y - vx.y);
+        ctx.lineTo(px.x - vy.x, px.y - vy.y);
+        ctx.closePath();
+        ctx.fillStyle = '#efc59d';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(145,115,90,0.25)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
       }
     }
   };
@@ -419,13 +421,6 @@
       ctx.lineTo(center.x + (p4.x - center.x) * scale, center.y + (p4.y - center.y) * scale + yOffset);
       ctx.closePath();
     };
-
-    if (isLowQualityMode()) {
-      drawInsetCell(0.82, -2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      return;
-    }
 
     drawInsetCell(0.9, -4);
     ctx.fillStyle = color;
@@ -479,8 +474,39 @@
     ctx.restore();
   };
 
-  let cachedBaseImage = null;
-  let sceneDirty = true;
+  const staticLayer = document.createElement('canvas');
+  const beadsLayer = document.createElement('canvas');
+  const staticCtx = staticLayer.getContext('2d');
+  const beadsCtx = beadsLayer.getContext('2d');
+  let staticDirty = true;
+  let beadsDirty = true;
+
+  const withCtx = (nextCtx, fn) => {
+    const prevCtx = ctx;
+    ctx = nextCtx;
+    try { fn(); } finally { ctx = prevCtx; }
+  };
+
+  const drawStaticScene = () => {
+    withCtx(staticCtx, () => {
+      ctx.clearRect(0, 0, staticLayer.width, staticLayer.height);
+      ctx.fillStyle = '#efe4c6';
+      ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      drawBoardBase();
+      drawTargetGrid();
+    });
+  };
+
+  const drawBeadsScene = () => {
+    withCtx(beadsCtx, () => {
+      ctx.clearRect(0, 0, beadsLayer.width, beadsLayer.height);
+      for (let r = 0; r < state.rows; r++) {
+        for (let c = 0; c < state.cols; c++) {
+          if (state.grid[r]?.[c]) drawBeadAtCell(c, r, state.grid[r][c]);
+        }
+      }
+    });
+  };
 
   const drawScene = () => {
     ctx.fillStyle = '#efe4c6';
@@ -495,13 +521,19 @@
   };
 
   const renderFrame = () => {
-    if (sceneDirty || !cachedBaseImage) {
-      drawScene();
-      cachedBaseImage = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      sceneDirty = false;
-    } else {
-      ctx.putImageData(cachedBaseImage, 0, 0);
+    if (staticDirty) {
+      drawStaticScene();
+      staticDirty = false;
+      beadsDirty = true;
     }
+    if (beadsDirty) {
+      drawBeadsScene();
+      beadsDirty = false;
+    }
+
+    mainCtx.clearRect(0, 0, canvas.width, canvas.height);
+    mainCtx.drawImage(staticLayer, 0, 0);
+    mainCtx.drawImage(beadsLayer, 0, 0);
 
     const blinking = drawTargetBlinkOverlay();
     drawTweezers();
@@ -509,8 +541,13 @@
   };
 
   let drawQueued = false;
-  const requestDraw = (full = true) => {
-    if (full) sceneDirty = true;
+  const requestDraw = (full = true, beadsOnly = false) => {
+    if (full) {
+      staticDirty = true;
+      beadsDirty = true;
+    } else if (beadsOnly) {
+      beadsDirty = true;
+    }
     if (drawQueued) return;
     drawQueued = true;
     requestAnimationFrame(() => {
@@ -524,7 +561,7 @@
     if (!cell) return;
     if (erase || state.selected === null) state.grid[cell.r][cell.c] = null;
     else if (!state.grid[cell.r][cell.c]) state.grid[cell.r][cell.c] = state.selected;
-    requestDraw();
+    requestDraw(false, true);
   };
 
   const updateProgress = (value, message = '') => {
@@ -614,6 +651,7 @@
         state.targetGrid[r][c] = centerToHex[labels[idx++]];
       }
     }
+    rebuildTargetCellIndex();
     updateProgress(100, 'KMeans 完成');
     renderTargetLegend();
     requestDraw();
@@ -712,6 +750,7 @@
         idx += 4;
       }
     }
+    rebuildTargetCellIndex();
     renderTargetLegend();
     requestDraw();
   };
@@ -738,6 +777,7 @@
         if (ch === '2') state.targetGrid[rr][cc] = paintColors.find((p) => p.code === 'H10')?.value || '#B4B6AB';
       });
     });
+    rebuildTargetCellIndex();
     renderTargetLegend();
     requestDraw();
   };
@@ -838,15 +878,22 @@
     const h = canvas.clientHeight;
     canvas.width = Math.floor(w * ratio);
     canvas.height = Math.floor(h * ratio);
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    cachedBaseImage = null;
-    sceneDirty = true;
+    staticLayer.width = canvas.width;
+    staticLayer.height = canvas.height;
+    beadsLayer.width = canvas.width;
+    beadsLayer.height = canvas.height;
+    mainCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    staticCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    beadsCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    projectionCache.key = '';
+    staticDirty = true;
+    beadsDirty = true;
     requestDraw();
   };
 
   document.getElementById('clearBtn').onclick = () => {
     state.grid = createGrid(state.rows, state.cols);
-    requestDraw();
+    requestDraw(false, true);
   };
   document.getElementById('catBtn').onclick = loadCatPattern;
   document.getElementById('rotLBtn').onclick = () => rotateBySmallStep(-1);
