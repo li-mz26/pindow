@@ -7,45 +7,56 @@
   const MIN_GRID = 8;
   const MAX_GRID = 120;
 
-  const hslToHex = (h, s, l) => {
-    const sat = s / 100;
-    const lig = l / 100;
-    const c = (1 - Math.abs(2 * lig - 1)) * sat;
-    const hh = h / 60;
-    const x = c * (1 - Math.abs((hh % 2) - 1));
-    let r = 0, g = 0, b = 0;
-    if (hh >= 0 && hh < 1) [r, g, b] = [c, x, 0];
-    else if (hh < 2) [r, g, b] = [x, c, 0];
-    else if (hh < 3) [r, g, b] = [0, c, x];
-    else if (hh < 4) [r, g, b] = [0, x, c];
-    else if (hh < 5) [r, g, b] = [x, 0, c];
-    else [r, g, b] = [c, 0, x];
-    const m = lig - c / 2;
-    const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+  const hexToRgb = (hex) => {
+    const v = hex.replace('#', '');
+    return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
+  };
+
+  const rgbToHex = (rgb) => `#${rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+
+  const mixHex = (a, b, t) => {
+    const ra = hexToRgb(a);
+    const rb = hexToRgb(b);
+    return rgbToHex([
+      ra[0] + (rb[0] - ra[0]) * t,
+      ra[1] + (rb[1] - ra[1]) * t,
+      ra[2] + (rb[2] - ra[2]) * t
+    ]);
+  };
+
+  const interpolateStops = (stops, count) => {
+    if (count <= 1) return [stops[0]];
+    const result = [];
+    const segments = stops.length - 1;
+    for (let i = 0; i < count; i++) {
+      const p = i / (count - 1);
+      const seg = Math.min(segments - 1, Math.floor(p * segments));
+      const localStart = seg / segments;
+      const localEnd = (seg + 1) / segments;
+      const t = (p - localStart) / (localEnd - localStart || 1);
+      result.push(mixHex(stops[seg], stops[seg + 1], t));
+    }
+    return result;
   };
 
   const generate221Palette = () => {
-    const colors = [];
-    const hues = Array.from({ length: 18 }, (_, i) => i * 20);
-    const sats = [55, 70, 85];
-    const lights = [35, 50, 65, 80];
+    const families = [
+      { prefix: 'A', name: '黄色系', count: 26, stops: ['#F7F3C9', '#F4DA7E', '#F2B35D', '#ED8E54'] },
+      { prefix: 'B', name: '绿色系', count: 32, stops: ['#BDEB59', '#5CB447', '#1D7A54', '#5E613F'] },
+      { prefix: 'C', name: '青色系', count: 29, stops: ['#C9EBE1', '#74C9D4', '#2289B3', '#3F568A'] },
+      { prefix: 'D', name: '蓝紫系', count: 26, stops: ['#C6CCEC', '#7D94D9', '#8B56B7', '#47509C'] },
+      { prefix: 'E', name: '粉紫系', count: 24, stops: ['#EAD9D5', '#EBA6D2', '#E56FB0', '#B64284'] },
+      { prefix: 'F', name: '红色系', count: 25, stops: ['#F8A3A0', '#F55B68', '#DA2945', '#B5423B'] },
+      { prefix: 'G', name: '棕色系', count: 21, stops: ['#EEE0D4', '#D4AE83', '#A7764F', '#7C5641'] },
+      { prefix: 'H', name: '黑白系', count: 23, stops: ['#F3F4EF', '#D7D8CD', '#A6A89D', '#353535'] },
+      { prefix: 'M', name: '灰色系', count: 15, stops: ['#E6E8E2', '#ADB5B1', '#7A8486', '#41484B'] }
+    ];
 
-    for (const h of hues) {
-      for (const s of sats) {
-        for (const l of lights) {
-          colors.push(hslToHex(h, s, l));
-        }
-      }
-    }
-
-    colors.push('#111111', '#333333', '#666666', '#AAAAAA', '#EEEEEE');
-
-    return colors.slice(0, 221).map((hex, i) => ({
-      name: `颜色 ${String(i + 1).padStart(3, '0')}`,
-      code: `C${String(i + 1).padStart(3, '0')}`,
-      value: hex
-    }));
+    return families.flatMap((family) => interpolateStops(family.stops, family.count).map((value, i) => ({
+      name: `${family.name} ${family.prefix}${String(i + 1).padStart(2, '0')}`,
+      code: `${family.prefix}${String(i + 1).padStart(2, '0')}`,
+      value
+    })));
   };
 
   const palette = [...generate221Palette(), { name: '橡皮擦', code: 'ER', value: null }];
@@ -67,11 +78,6 @@
     pointer: { x: 0, y: 0, inside: false },
     yawAngle: 0,
     sourceImage: null
-  };
-
-  const hexToRgb = (hex) => {
-    const v = hex.replace('#', '');
-    return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
   };
 
   const colorDist = (a, b) => {
@@ -485,8 +491,8 @@
         const rr = r + rowOffset;
         const cc = c + colOffset;
         if (rr >= state.rows || cc >= state.cols) return;
-        if (ch === '1') state.targetGrid[rr][cc] = '#F5F1E9';
-        if (ch === '2') state.targetGrid[rr][cc] = '#D7D7D7';
+        if (ch === '1') state.targetGrid[rr][cc] = paintColors.find((p) => p.code === 'H02')?.value || '#F2F2EE';
+        if (ch === '2') state.targetGrid[rr][cc] = paintColors.find((p) => p.code === 'H10')?.value || '#B4B6AB';
       });
     });
     requestDraw();
