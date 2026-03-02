@@ -128,6 +128,19 @@
     ctx.closePath();
   };
 
+  const drawProjectedCell = (u, v) => {
+    const p1 = project(u, v);
+    const p2 = project(u + 1, v);
+    const p3 = project(u + 1, v + 1);
+    const p4 = project(u, v + 1);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.lineTo(p3.x, p3.y);
+    ctx.lineTo(p4.x, p4.y);
+    ctx.closePath();
+  };
+
   const drawBoardBase = () => {
     const p00 = project(0, 0), p10 = project(state.cols, 0), p11 = project(state.cols, state.rows), p01 = project(0, state.rows);
     ctx.fillStyle = '#e4c894';
@@ -169,7 +182,6 @@
 
   const drawTargetGrid = () => {
     const s = unit();
-    const rx = s, ry = s * 0.55;
     const axisU = project(1, 0);
     const axisO = project(0, 0);
     const textAngle = Math.atan2(axisU.y - axisO.y, axisU.x - axisO.x);
@@ -180,13 +192,27 @@
         const t = state.targetGrid[r]?.[c];
 
         if (t) {
-          drawDiamond(centerP.x, centerP.y, rx * 0.95, ry * 0.95);
+          drawProjectedCell(c + 0.06, r + 0.06);
+          // 内层引导块用缩小单元格（通过缩放到中心点实现）
+          ctx.save();
+          ctx.translate(centerP.x, centerP.y);
+          const p1 = project(c, r); const p2 = project(c + 1, r); const p3 = project(c + 1, r + 1); const p4 = project(c, r + 1);
+          ctx.beginPath();
+          ctx.moveTo((p1.x - centerP.x) * 0.92, (p1.y - centerP.y) * 0.92);
+          ctx.lineTo((p2.x - centerP.x) * 0.92, (p2.y - centerP.y) * 0.92);
+          ctx.lineTo((p3.x - centerP.x) * 0.92, (p3.y - centerP.y) * 0.92);
+          ctx.lineTo((p4.x - centerP.x) * 0.92, (p4.y - centerP.y) * 0.92);
+          ctx.closePath();
           if (state.displayMode === 'color') {
             ctx.fillStyle = `${t}55`;
             ctx.fill();
           } else {
             ctx.fillStyle = 'rgba(255,255,255,0.78)';
             ctx.fill();
+          }
+          ctx.restore();
+
+          if (state.displayMode === 'code') {
             ctx.save();
             ctx.translate(centerP.x, centerP.y + 1);
             ctx.rotate(textAngle);
@@ -199,12 +225,23 @@
           }
         }
 
-        drawDiamond(centerP.x, centerP.y, rx, ry);
+        drawProjectedCell(c, r);
         ctx.strokeStyle = 'rgba(183,146,104,0.45)';
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        drawDiamond(centerP.x, centerP.y, s * 0.16, s * 0.09);
+        // 中央孔位：使用与当前单元一致的方向矢量绘制小菱形
+        const px = project(c + 0.5, r + 0.5);
+        const pu = project(c + 0.58, r + 0.5);
+        const pv = project(c + 0.5, r + 0.58);
+        const vx = { x: pu.x - px.x, y: pu.y - px.y };
+        const vy = { x: pv.x - px.x, y: pv.y - px.y };
+        ctx.beginPath();
+        ctx.moveTo(px.x + vx.x, px.y + vx.y);
+        ctx.lineTo(px.x + vy.x, px.y + vy.y);
+        ctx.lineTo(px.x - vx.x, px.y - vx.y);
+        ctx.lineTo(px.x - vy.x, px.y - vy.y);
+        ctx.closePath();
         ctx.fillStyle = '#efc59d';
         ctx.fill();
         ctx.strokeStyle = 'rgba(145,115,90,0.25)';
@@ -215,20 +252,34 @@
   };
 
   const drawBeadAtCell = (c, r, color) => {
-    const p = project(c + 0.5, r + 0.5);
-    const s = unit();
-    drawDiamond(p.x, p.y - 4, s * 0.85, s * 0.47);
+    const center = project(c + 0.5, r + 0.5);
+    const pu = project(c + 0.92, r + 0.5);
+    const pv = project(c + 0.5, r + 0.92);
+    const vx = { x: pu.x - center.x, y: pu.y - center.y };
+    const vy = { x: pv.x - center.x, y: pv.y - center.y };
+
+    const drawIsoDiamond = (scale, yOffset = 0) => {
+      ctx.beginPath();
+      ctx.moveTo(center.x + vx.x * scale, center.y + vx.y * scale + yOffset);
+      ctx.lineTo(center.x + vy.x * scale, center.y + vy.y * scale + yOffset);
+      ctx.lineTo(center.x - vx.x * scale, center.y - vx.y * scale + yOffset);
+      ctx.lineTo(center.x - vy.x * scale, center.y - vy.y * scale + yOffset);
+      ctx.closePath();
+    };
+
+    drawIsoDiamond(0.95, -4);
     ctx.fillStyle = color;
     ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,0.12)';
     ctx.stroke();
-    drawDiamond(p.x, p.y - 1, s * 0.78, s * 0.43);
+
+    drawIsoDiamond(0.82, -1);
     ctx.fillStyle = color;
     ctx.globalAlpha = 0.9;
     ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y - 3, s * 0.12, 0, Math.PI * 2);
+
+    drawIsoDiamond(0.2, -3);
     ctx.fillStyle = 'rgba(120,100,90,0.3)';
     ctx.fill();
   };
