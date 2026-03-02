@@ -489,7 +489,7 @@
 
   const drawStaticScene = () => {
     withCtx(staticCtx, () => {
-      ctx.clearRect(0, 0, staticLayer.width, staticLayer.height);
+      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
       ctx.fillStyle = '#efe4c6';
       ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
       drawBoardBase();
@@ -499,7 +499,7 @@
 
   const drawBeadsScene = () => {
     withCtx(beadsCtx, () => {
-      ctx.clearRect(0, 0, beadsLayer.width, beadsLayer.height);
+      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
       for (let r = 0; r < state.rows; r++) {
         for (let c = 0; c < state.cols; c++) {
           if (state.grid[r]?.[c]) drawBeadAtCell(c, r, state.grid[r][c]);
@@ -531,9 +531,9 @@
       beadsDirty = false;
     }
 
-    mainCtx.clearRect(0, 0, canvas.width, canvas.height);
-    mainCtx.drawImage(staticLayer, 0, 0);
-    mainCtx.drawImage(beadsLayer, 0, 0);
+    mainCtx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    mainCtx.drawImage(staticLayer, 0, 0, staticLayer.width, staticLayer.height, 0, 0, canvas.clientWidth, canvas.clientHeight);
+    mainCtx.drawImage(beadsLayer, 0, 0, beadsLayer.width, beadsLayer.height, 0, 0, canvas.clientWidth, canvas.clientHeight);
 
     const blinking = drawTargetBlinkOverlay();
     drawTweezers();
