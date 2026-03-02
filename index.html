@@ -152,11 +152,23 @@
     let displayMode = 'code';
     let dragging = false;
     let pointer = { x: 0, y: 0, inside: false };
-    let yawIndex = 0; // 0,1,2,3 => 0/90/180/270
+    let yawAngle = 0;
+    let targetYawAngle = 0;
+    let rotationAnimating = false;
 
-    function yawRad() { return yawIndex * Math.PI / 2; }
+    function normalizeAngle(a) {
+      const t = Math.PI * 2;
+      return ((a % t) + t) % t;
+    }
+    function shortestDelta(from, to) {
+      const t = Math.PI * 2;
+      let d = (to - from) % t;
+      if (d > Math.PI) d -= t;
+      if (d < -Math.PI) d += t;
+      return d;
+    }
     function basis() {
-      const t = yawRad();
+      const t = yawAngle;
       const ct = Math.cos(t), st = Math.sin(t);
       return { ct, st };
     }
@@ -453,9 +465,29 @@
       grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
       draw();
     };
+    function animateRotation() {
+      const delta = shortestDelta(yawAngle, targetYawAngle);
+      if (Math.abs(delta) < 0.002) {
+        yawAngle = normalizeAngle(targetYawAngle);
+        rotationAnimating = false;
+        draw();
+        return;
+      }
+      yawAngle = normalizeAngle(yawAngle + delta * 0.18);
+      draw();
+      requestAnimationFrame(animateRotation);
+    }
+    function rotateBy(step) {
+      targetYawAngle = normalizeAngle(targetYawAngle + step * (Math.PI / 2));
+      if (!rotationAnimating) {
+        rotationAnimating = true;
+        requestAnimationFrame(animateRotation);
+      }
+    }
+
     document.getElementById('catBtn').onclick = loadCatPattern;
-    document.getElementById('rotLBtn').onclick = () => { yawIndex = (yawIndex + 3) % 4; draw(); };
-    document.getElementById('rotRBtn').onclick = () => { yawIndex = (yawIndex + 1) % 4; draw(); };
+    document.getElementById('rotLBtn').onclick = () => rotateBy(-1);
+    document.getElementById('rotRBtn').onclick = () => rotateBy(1);
     document.getElementById('modeBtn').onclick = (e) => {
       displayMode = displayMode === 'code' ? 'color' : 'code';
       e.currentTarget.textContent = `模式：${displayMode === 'code' ? '色号' : '目标颜色'}`;
