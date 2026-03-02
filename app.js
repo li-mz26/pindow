@@ -107,6 +107,8 @@
     dragging: false,
     pointer: { x: 0, y: 0, inside: false },
     yawAngle: 0,
+    viewOffsetX: 0,
+    viewOffsetY: 0,
     sourceImage: null,
     converting: false,
     cropSession: null
@@ -218,7 +220,7 @@
   const projectionCache = { key: '', data: null };
 
   const getProjection = () => {
-    const key = [state.cols, state.rows, state.zoom, state.yawAngle.toFixed(4), canvas.clientWidth, canvas.clientHeight].join('|');
+    const key = [state.cols, state.rows, state.zoom, state.yawAngle.toFixed(4), state.viewOffsetX, state.viewOffsetY, canvas.clientWidth, canvas.clientHeight].join('|');
     if (projectionCache.key === key && projectionCache.data) return projectionCache.data;
 
     const w = canvas.clientWidth;
@@ -239,8 +241,8 @@
     const maxX = Math.max(...corners.map((p) => p.x));
     const minY = Math.min(...corners.map((p) => p.y));
     const maxY = Math.max(...corners.map((p) => p.y));
-    const offX = canvas.clientWidth / 2 - (minX + maxX) / 2;
-    const offY = canvas.clientHeight / 2 - (minY + maxY) / 2;
+    const offX = canvas.clientWidth / 2 - (minX + maxX) / 2 + state.viewOffsetX;
+    const offY = canvas.clientHeight / 2 - (minY + maxY) / 2 + state.viewOffsetY;
 
     projectionCache.key = key;
     projectionCache.data = { s, ct, st, offX, offY };
@@ -268,6 +270,14 @@
   const toCell = (clientX, clientY) => {
     const rect = canvas.getBoundingClientRect();
     const { u, v } = unproject(clientX - rect.left, clientY - rect.top);
+    const c = Math.floor(u);
+    const r = Math.floor(v);
+    if (r < 0 || r >= state.rows || c < 0 || c >= state.cols) return null;
+    return { r, c };
+  };
+
+  const toCellFromCanvasPoint = (px, py) => {
+    const { u, v } = unproject(px, py);
     const c = Math.floor(u);
     const r = Math.floor(v);
     if (r < 0 || r >= state.rows || c < 0 || c >= state.cols) return null;
@@ -441,33 +451,47 @@
 
   const drawTweezers = () => {
     if (!state.pointer.inside) return;
-    const { x, y } = state.pointer;
+    const hoverCell = toCellFromCanvasPoint(state.pointer.x, state.pointer.y);
+    const anchor = hoverCell ? project(hoverCell.c + 0.5, hoverCell.r + 0.5) : { x: state.pointer.x, y: state.pointer.y };
+    const x = anchor.x;
+    const y = anchor.y;
+
     ctx.save();
+    ctx.globalAlpha = hoverCell ? 0.96 : 0.82;
     ctx.lineCap = 'round';
     ctx.strokeStyle = 'rgba(109,149,201,.85)';
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(x - 40, y - 66);
-    ctx.lineTo(x - 7, y + 2);
+    ctx.moveTo(x - 30, y - 56);
+    ctx.lineTo(x - 4, y + 1);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(x - 26, y - 78);
-    ctx.lineTo(x + 7, y - 6);
+    ctx.moveTo(x - 16, y - 68);
+    ctx.lineTo(x + 6, y - 8);
     ctx.stroke();
 
     ctx.strokeStyle = 'rgba(180,120,220,.9)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(x - 46, y - 72);
-    ctx.lineTo(x - 12, y - 2);
+    ctx.moveTo(x - 36, y - 62);
+    ctx.lineTo(x - 8, y - 2);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(x - 32, y - 84);
+    ctx.moveTo(x - 22, y - 74);
     ctx.lineTo(x + 1, y - 10);
     ctx.stroke();
 
-    if (state.selected) {
-      drawDiamond(x + 8, y + 8, 12, 7);
+    if (hoverCell) {
+      drawProjectedCell(hoverCell.c + 0.08, hoverCell.r + 0.08);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(80,40,20,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    if (state.selected && hoverCell) {
+      drawDiamond(x + 8, y + 4, 10, 6);
       ctx.fillStyle = state.selected;
       ctx.fill();
     }
@@ -812,6 +836,13 @@
     requestDraw();
   };
 
+  const panBoard = (dx, dy) => {
+    state.viewOffsetX += dx;
+    state.viewOffsetY += dy;
+    projectionCache.key = '';
+    requestDraw();
+  };
+
   const mountPalette = () => {
     tray.innerHTML = '';
 
@@ -912,6 +943,10 @@
   document.getElementById('rotLBtn').onclick = () => rotateBySmallStep(-1);
   document.getElementById('rotRBtn').onclick = () => rotateBySmallStep(1);
   document.getElementById('resizeBoardBtn').onclick = applyBoardSize;
+  document.getElementById('panUpBtn').onclick = () => panBoard(0, -22);
+  document.getElementById('panDownBtn').onclick = () => panBoard(0, 22);
+  document.getElementById('panLeftBtn').onclick = () => panBoard(-22, 0);
+  document.getElementById('panRightBtn').onclick = () => panBoard(22, 0);
 
   document.getElementById('modeBtn').onclick = (e) => {
     state.displayMode = state.displayMode === 'code' ? 'color' : 'code';
