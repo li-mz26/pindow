@@ -15,6 +15,7 @@
   const boardThickness = 26;
   const MIN_GRID = 8;
   const MAX_GRID = 120;
+  const LOW_QUALITY_CELL_THRESHOLD = 5000;
 
   const hexToRgb = (hex) => {
     const v = hex.replace('#', '');
@@ -111,6 +112,8 @@
     cropSession: null
   };
 
+  const isLowQualityMode = () => state.rows * state.cols >= LOW_QUALITY_CELL_THRESHOLD;
+
   const colorDist = (a, b) => {
     const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
     return dr * dr + dg * dg + db * db;
@@ -141,6 +144,7 @@
   };
 
   const drawTargetBlinkOverlay = () => {
+    if (isLowQualityMode()) return false;
     if (!state.selected) return false;
     const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 220);
     const fillAlpha = 0.1 + pulse * 0.25;
@@ -325,6 +329,7 @@
     const axisU = project(1, 0);
     const axisO = project(0, 0);
     const textAngle = Math.atan2(axisU.y - axisO.y, axisU.x - axisO.x);
+    const lowQuality = isLowQualityMode();
 
     for (let r = 0; r < state.rows; r++) {
       for (let c = 0; c < state.cols; c++) {
@@ -332,36 +337,42 @@
         const t = state.targetGrid[r]?.[c];
 
         if (t) {
-          drawProjectedCell(c + 0.06, r + 0.06);
-          // 内层引导块用缩小单元格（通过缩放到中心点实现）
-          ctx.save();
-          ctx.translate(centerP.x, centerP.y);
-          const p1 = project(c, r); const p2 = project(c + 1, r); const p3 = project(c + 1, r + 1); const p4 = project(c, r + 1);
-          ctx.beginPath();
-          ctx.moveTo((p1.x - centerP.x) * 0.92, (p1.y - centerP.y) * 0.92);
-          ctx.lineTo((p2.x - centerP.x) * 0.92, (p2.y - centerP.y) * 0.92);
-          ctx.lineTo((p3.x - centerP.x) * 0.92, (p3.y - centerP.y) * 0.92);
-          ctx.lineTo((p4.x - centerP.x) * 0.92, (p4.y - centerP.y) * 0.92);
-          ctx.closePath();
-          if (state.displayMode === 'color') {
-            ctx.fillStyle = `${t}55`;
+          if (lowQuality) {
+            drawProjectedCell(c, r);
+            ctx.fillStyle = state.displayMode === 'color' ? `${t}55` : 'rgba(255,255,255,0.78)';
             ctx.fill();
           } else {
-            ctx.fillStyle = 'rgba(255,255,255,0.78)';
-            ctx.fill();
-          }
-          ctx.restore();
-
-          if (state.displayMode === 'code') {
+            drawProjectedCell(c + 0.06, r + 0.06);
+            // 内层引导块用缩小单元格（通过缩放到中心点实现）
             ctx.save();
-            ctx.translate(centerP.x, centerP.y + 1);
-            ctx.rotate(textAngle);
-            ctx.fillStyle = '#5f4f47';
-            ctx.font = `${Math.max(8, s * 0.42)}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(colorToCode[t] || '--', 0, 0);
+            ctx.translate(centerP.x, centerP.y);
+            const p1 = project(c, r); const p2 = project(c + 1, r); const p3 = project(c + 1, r + 1); const p4 = project(c, r + 1);
+            ctx.beginPath();
+            ctx.moveTo((p1.x - centerP.x) * 0.92, (p1.y - centerP.y) * 0.92);
+            ctx.lineTo((p2.x - centerP.x) * 0.92, (p2.y - centerP.y) * 0.92);
+            ctx.lineTo((p3.x - centerP.x) * 0.92, (p3.y - centerP.y) * 0.92);
+            ctx.lineTo((p4.x - centerP.x) * 0.92, (p4.y - centerP.y) * 0.92);
+            ctx.closePath();
+            if (state.displayMode === 'color') {
+              ctx.fillStyle = `${t}55`;
+              ctx.fill();
+            } else {
+              ctx.fillStyle = 'rgba(255,255,255,0.78)';
+              ctx.fill();
+            }
             ctx.restore();
+
+            if (state.displayMode === 'code') {
+              ctx.save();
+              ctx.translate(centerP.x, centerP.y + 1);
+              ctx.rotate(textAngle);
+              ctx.fillStyle = '#5f4f47';
+              ctx.font = `${Math.max(8, s * 0.42)}px sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(colorToCode[t] || '--', 0, 0);
+              ctx.restore();
+            }
           }
         }
 
@@ -371,22 +382,24 @@
         ctx.stroke();
 
         // 中央孔位：使用与当前单元一致的方向矢量绘制小菱形
-        const px = project(c + 0.5, r + 0.5);
-        const pu = project(c + 0.58, r + 0.5);
-        const pv = project(c + 0.5, r + 0.58);
-        const vx = { x: pu.x - px.x, y: pu.y - px.y };
-        const vy = { x: pv.x - px.x, y: pv.y - px.y };
-        ctx.beginPath();
-        ctx.moveTo(px.x + vx.x, px.y + vx.y);
-        ctx.lineTo(px.x + vy.x, px.y + vy.y);
-        ctx.lineTo(px.x - vx.x, px.y - vx.y);
-        ctx.lineTo(px.x - vy.x, px.y - vy.y);
-        ctx.closePath();
-        ctx.fillStyle = '#efc59d';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(145,115,90,0.25)';
-        ctx.lineWidth = 0.8;
-        ctx.stroke();
+        if (!lowQuality) {
+          const px = project(c + 0.5, r + 0.5);
+          const pu = project(c + 0.58, r + 0.5);
+          const pv = project(c + 0.5, r + 0.58);
+          const vx = { x: pu.x - px.x, y: pu.y - px.y };
+          const vy = { x: pv.x - px.x, y: pv.y - px.y };
+          ctx.beginPath();
+          ctx.moveTo(px.x + vx.x, px.y + vx.y);
+          ctx.lineTo(px.x + vy.x, px.y + vy.y);
+          ctx.lineTo(px.x - vx.x, px.y - vx.y);
+          ctx.lineTo(px.x - vy.x, px.y - vy.y);
+          ctx.closePath();
+          ctx.fillStyle = '#efc59d';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(145,115,90,0.25)';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
       }
     }
   };
@@ -406,6 +419,13 @@
       ctx.lineTo(center.x + (p4.x - center.x) * scale, center.y + (p4.y - center.y) * scale + yOffset);
       ctx.closePath();
     };
+
+    if (isLowQualityMode()) {
+      drawInsetCell(0.82, -2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      return;
+    }
 
     drawInsetCell(0.9, -4);
     ctx.fillStyle = color;
