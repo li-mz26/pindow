@@ -3,9 +3,9 @@
   const ctx = canvas.getContext('2d');
   const tray = document.getElementById('tray');
 
-  const COLS = 22;
-  const ROWS = 34;
   const boardThickness = 26;
+  const MIN_GRID = 8;
+  const MAX_GRID = 120;
 
   const palette = [
     { name: '深棕 BR', code: 'BR', value: '#4B2208' },
@@ -21,16 +21,19 @@
   const paintColors = palette.filter((p) => p.value);
   const colorToCode = Object.fromEntries(paintColors.map((p) => [p.value, p.code]));
 
+  const createGrid = (rows, cols, fill = null) => Array.from({ length: rows }, () => Array(cols).fill(fill));
+
   const state = {
+    cols: 22,
+    rows: 34,
+    zoom: 1,
     selected: '#F5F1E9',
-    grid: Array.from({ length: ROWS }, () => Array(COLS).fill(null)),
-    targetGrid: Array.from({ length: ROWS }, () => Array(COLS).fill(null)),
+    grid: createGrid(34, 22),
+    targetGrid: createGrid(34, 22),
     displayMode: 'code',
     dragging: false,
     pointer: { x: 0, y: 0, inside: false },
     yawAngle: 0,
-    targetYawAngle: 0,
-    rotationAnimating: false,
     sourceImage: null
   };
 
@@ -57,28 +60,13 @@
     return best;
   };
 
-  const normalizeAngle = (a) => {
-    const t = Math.PI * 2;
-    return ((a % t) + t) % t;
-  };
-
-  const shortestDelta = (from, to) => {
-    const t = Math.PI * 2;
-    let d = (to - from) % t;
-    if (d > Math.PI) d -= t;
-    if (d < -Math.PI) d += t;
-    return d;
-  };
-
-  const basis = () => {
-    const t = state.yawAngle;
-    return { ct: Math.cos(t), st: Math.sin(t) };
-  };
+  const basis = () => ({ ct: Math.cos(state.yawAngle), st: Math.sin(state.yawAngle) });
 
   const unit = () => {
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
-    return Math.min(w / (COLS + ROWS + 8), h / ((COLS + ROWS) * 0.62 + 12));
+    const base = Math.min(w / (state.cols + state.rows + 8), h / ((state.cols + state.rows) * 0.62 + 12));
+    return base * state.zoom;
   };
 
   const projectRaw = (u, v) => {
@@ -90,12 +78,20 @@
   };
 
   const boardCenterOffset = () => {
-    const corners = [projectRaw(0, 0), projectRaw(COLS, 0), projectRaw(COLS, ROWS), projectRaw(0, ROWS)];
+    const corners = [
+      projectRaw(0, 0),
+      projectRaw(state.cols, 0),
+      projectRaw(state.cols, state.rows),
+      projectRaw(0, state.rows)
+    ];
     const minX = Math.min(...corners.map((p) => p.x));
     const maxX = Math.max(...corners.map((p) => p.x));
     const minY = Math.min(...corners.map((p) => p.y));
     const maxY = Math.max(...corners.map((p) => p.y));
-    return { x: canvas.clientWidth / 2 - (minX + maxX) / 2, y: canvas.clientHeight / 2 - (minY + maxY) / 2 };
+    return {
+      x: canvas.clientWidth / 2 - (minX + maxX) / 2,
+      y: canvas.clientHeight / 2 - (minY + maxY) / 2
+    };
   };
 
   const project = (u, v) => {
@@ -120,7 +116,7 @@
     const { u, v } = unproject(clientX - rect.left, clientY - rect.top);
     const c = Math.floor(u);
     const r = Math.floor(v);
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
+    if (r < 0 || r >= state.rows || c < 0 || c >= state.cols) return null;
     return { r, c };
   };
 
@@ -134,35 +130,51 @@
   };
 
   const drawBoardBase = () => {
-    const p00 = project(0, 0), p10 = project(COLS, 0), p11 = project(COLS, ROWS), p01 = project(0, ROWS);
+    const p00 = project(0, 0), p10 = project(state.cols, 0), p11 = project(state.cols, state.rows), p01 = project(0, state.rows);
     ctx.fillStyle = '#e4c894';
     ctx.beginPath();
-    ctx.moveTo(p00.x, p00.y + boardThickness); ctx.lineTo(p10.x, p10.y + boardThickness);
-    ctx.lineTo(p11.x, p11.y + boardThickness); ctx.lineTo(p01.x, p01.y + boardThickness); ctx.closePath(); ctx.fill();
+    ctx.moveTo(p00.x, p00.y + boardThickness);
+    ctx.lineTo(p10.x, p10.y + boardThickness);
+    ctx.lineTo(p11.x, p11.y + boardThickness);
+    ctx.lineTo(p01.x, p01.y + boardThickness);
+    ctx.closePath();
+    ctx.fill();
 
     ctx.fillStyle = '#d6b980';
     ctx.beginPath();
-    ctx.moveTo(p10.x, p10.y); ctx.lineTo(p11.x, p11.y); ctx.lineTo(p11.x, p11.y + boardThickness); ctx.lineTo(p10.x, p10.y + boardThickness);
-    ctx.closePath(); ctx.fill();
+    ctx.moveTo(p10.x, p10.y);
+    ctx.lineTo(p11.x, p11.y);
+    ctx.lineTo(p11.x, p11.y + boardThickness);
+    ctx.lineTo(p10.x, p10.y + boardThickness);
+    ctx.closePath();
+    ctx.fill();
 
     ctx.fillStyle = '#ccb174';
     ctx.beginPath();
-    ctx.moveTo(p01.x, p01.y); ctx.lineTo(p11.x, p11.y); ctx.lineTo(p11.x, p11.y + boardThickness); ctx.lineTo(p01.x, p01.y + boardThickness);
-    ctx.closePath(); ctx.fill();
+    ctx.moveTo(p01.x, p01.y);
+    ctx.lineTo(p11.x, p11.y);
+    ctx.lineTo(p11.x, p11.y + boardThickness);
+    ctx.lineTo(p01.x, p01.y + boardThickness);
+    ctx.closePath();
+    ctx.fill();
 
     ctx.fillStyle = '#f6e9ca';
     ctx.beginPath();
-    ctx.moveTo(p00.x, p00.y); ctx.lineTo(p10.x, p10.y); ctx.lineTo(p11.x, p11.y); ctx.lineTo(p01.x, p01.y);
-    ctx.closePath(); ctx.fill();
+    ctx.moveTo(p00.x, p00.y);
+    ctx.lineTo(p10.x, p10.y);
+    ctx.lineTo(p11.x, p11.y);
+    ctx.lineTo(p01.x, p01.y);
+    ctx.closePath();
+    ctx.fill();
   };
 
   const drawTargetGrid = () => {
     const s = unit();
     const rx = s, ry = s * 0.55;
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
         const centerP = project(c + 0.5, r + 0.5);
-        const t = state.targetGrid[r][c];
+        const t = state.targetGrid[r]?.[c];
         if (t) {
           drawDiamond(centerP.x, centerP.y, rx * 0.95, ry * 0.95);
           if (state.displayMode === 'color') {
@@ -194,24 +206,48 @@
     const p = project(c + 0.5, r + 0.5);
     const s = unit();
     drawDiamond(p.x, p.y - 4, s * 0.85, s * 0.47);
-    ctx.fillStyle = color; ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.stroke();
     drawDiamond(p.x, p.y - 1, s * 0.78, s * 0.43);
-    ctx.fillStyle = color; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.beginPath(); ctx.arc(p.x, p.y - 3, s * 0.12, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(120,100,90,0.3)'; ctx.fill();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.9;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y - 3, s * 0.12, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(120,100,90,0.3)';
+    ctx.fill();
   };
 
   const drawTweezers = () => {
     if (!state.pointer.inside) return;
     const { x, y } = state.pointer;
     ctx.save();
-    ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(109,149,201,.85)'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(x - 40, y - 66); ctx.lineTo(x - 7, y + 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x - 26, y - 78); ctx.lineTo(x + 7, y - 6); ctx.stroke();
-    ctx.strokeStyle = 'rgba(180,120,220,.9)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(x - 46, y - 72); ctx.lineTo(x - 12, y - 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x - 32, y - 84); ctx.lineTo(x + 1, y - 10); ctx.stroke();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(109,149,201,.85)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(x - 40, y - 66);
+    ctx.lineTo(x - 7, y + 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - 26, y - 78);
+    ctx.lineTo(x + 7, y - 6);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(180,120,220,.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 46, y - 72);
+    ctx.lineTo(x - 12, y - 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - 32, y - 84);
+    ctx.lineTo(x + 1, y - 10);
+    ctx.stroke();
+
     if (state.selected) {
       drawDiamond(x + 8, y + 8, 12, 7);
       ctx.fillStyle = state.selected;
@@ -225,7 +261,11 @@
     ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     drawBoardBase();
     drawTargetGrid();
-    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (state.grid[r][c]) drawBeadAtCell(c, r, state.grid[r][c]);
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        if (state.grid[r]?.[c]) drawBeadAtCell(c, r, state.grid[r][c]);
+      }
+    }
     drawTweezers();
   };
 
@@ -245,10 +285,14 @@
 
     for (let iter = 0; iter < iterations; iter++) {
       for (let i = 0; i < pixels.length; i++) {
-        let best = 0, bestD = Infinity;
+        let best = 0;
+        let bestD = Infinity;
         for (let c = 0; c < centers.length; c++) {
           const d = colorDist(pixels[i], centers[c]);
-          if (d < bestD) { bestD = d; best = c; }
+          if (d < bestD) {
+            bestD = d;
+            best = c;
+          }
         }
         labels[i] = best;
       }
@@ -256,7 +300,10 @@
       const sums = Array.from({ length: k }, () => [0, 0, 0, 0]);
       for (let i = 0; i < pixels.length; i++) {
         const l = labels[i];
-        sums[l][0] += pixels[i][0]; sums[l][1] += pixels[i][1]; sums[l][2] += pixels[i][2]; sums[l][3]++;
+        sums[l][0] += pixels[i][0];
+        sums[l][1] += pixels[i][1];
+        sums[l][2] += pixels[i][2];
+        sums[l][3]++;
       }
       for (let c = 0; c < k; c++) {
         if (!sums[c][3]) continue;
@@ -269,76 +316,81 @@
 
   const imageToTemplate = (img, k) => {
     const off = document.createElement('canvas');
-    off.width = COLS;
-    off.height = ROWS;
+    off.width = state.cols;
+    off.height = state.rows;
     const octx = off.getContext('2d');
-    octx.clearRect(0, 0, COLS, ROWS);
+    octx.clearRect(0, 0, state.cols, state.rows);
 
-    const scale = Math.min(COLS / img.width, ROWS / img.height);
+    const scale = Math.min(state.cols / img.width, state.rows / img.height);
     const dw = Math.max(1, Math.floor(img.width * scale));
     const dh = Math.max(1, Math.floor(img.height * scale));
-    const dx = Math.floor((COLS - dw) / 2);
-    const dy = Math.floor((ROWS - dh) / 2);
+    const dx = Math.floor((state.cols - dw) / 2);
+    const dy = Math.floor((state.rows - dh) / 2);
 
     octx.fillStyle = '#f5f1e9';
-    octx.fillRect(0, 0, COLS, ROWS);
+    octx.fillRect(0, 0, state.cols, state.rows);
     octx.drawImage(img, 0, 0, img.width, img.height, dx, dy, dw, dh);
 
-    const imgData = octx.getImageData(0, 0, COLS, ROWS).data;
+    const imgData = octx.getImageData(0, 0, state.cols, state.rows).data;
     const pixels = [];
     for (let i = 0; i < imgData.length; i += 4) pixels.push([imgData[i], imgData[i + 1], imgData[i + 2]]);
 
     const { centers, labels } = runKMeans(pixels, k, 12);
     const centerToHex = centers.map((c) => nearestPaletteHex(c));
 
-    const nextTarget = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    state.targetGrid = createGrid(state.rows, state.cols);
     let idx = 0;
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        nextTarget[r][c] = centerToHex[labels[idx++]];
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        state.targetGrid[r][c] = centerToHex[labels[idx++]];
       }
     }
-    state.targetGrid = nextTarget;
     draw();
   };
 
   const loadCatPattern = () => {
     const pattern = [
-      '.................11111','..................1....','......1...........1....','.....11.1..............',
-      '....111111111.....1....','....11.1...............','....11..................','....11..1......11....11',
-      '....11.....1...11....11','....111..1....111....11','....111...1..1111....11','....1111111111111111111',
-      '....1111111111111111111','....1111111111111111111','....2111111111111111111','.....211111111111111111',
-      '......21111111111111111','.......2222222222111111'
+      '.................11111', '..................1....', '......1...........1....', '.....11.1..............',
+      '....111111111.....1....', '....11.1...............', '....11..................', '....11..1......11....11',
+      '....11.....1...11....11', '....111..1....111....11', '....111...1..1111....11', '....1111111111111111111',
+      '....1111111111111111111', '....1111111111111111111', '....2111111111111111111', '.....211111111111111111',
+      '......21111111111111111', '.......2222222222111111'
     ];
-    state.targetGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
-    pattern.forEach((row, r) => [...row].forEach((ch, c) => {
-      const rr = r + 7, cc = c + 2;
-      if (rr >= ROWS || cc >= COLS) return;
-      if (ch === '1') state.targetGrid[rr][cc] = '#F5F1E9';
-      if (ch === '2') state.targetGrid[rr][cc] = '#D7D7D7';
-    }));
+
+    state.targetGrid = createGrid(state.rows, state.cols);
+    const rowOffset = Math.max(0, Math.floor((state.rows - pattern.length) / 2));
+    const colOffset = Math.max(0, Math.floor((state.cols - 22) / 2));
+
+    pattern.forEach((row, r) => {
+      [...row].forEach((ch, c) => {
+        const rr = r + rowOffset;
+        const cc = c + colOffset;
+        if (rr >= state.rows || cc >= state.cols) return;
+        if (ch === '1') state.targetGrid[rr][cc] = '#F5F1E9';
+        if (ch === '2') state.targetGrid[rr][cc] = '#D7D7D7';
+      });
+    });
     draw();
   };
 
-  const animateRotation = () => {
-    const delta = shortestDelta(state.yawAngle, state.targetYawAngle);
-    if (Math.abs(delta) < 0.002) {
-      state.yawAngle = normalizeAngle(state.targetYawAngle);
-      state.rotationAnimating = false;
-      draw();
-      return;
-    }
-    state.yawAngle = normalizeAngle(state.yawAngle + delta * 0.18);
+  const applyBoardSize = () => {
+    const colsInput = Number(document.getElementById('boardCols').value);
+    const rowsInput = Number(document.getElementById('boardRows').value);
+    const cols = Math.max(MIN_GRID, Math.min(MAX_GRID, colsInput || state.cols));
+    const rows = Math.max(MIN_GRID, Math.min(MAX_GRID, rowsInput || state.rows));
+
+    state.cols = cols;
+    state.rows = rows;
+    state.grid = createGrid(rows, cols);
+    state.targetGrid = createGrid(rows, cols);
+    loadCatPattern();
     draw();
-    requestAnimationFrame(animateRotation);
   };
 
-  const rotateBy = (step) => {
-    state.targetYawAngle = normalizeAngle(state.targetYawAngle + step * (Math.PI / 2));
-    if (!state.rotationAnimating) {
-      state.rotationAnimating = true;
-      requestAnimationFrame(animateRotation);
-    }
+  const rotateBySmallStep = (dir) => {
+    const step = Math.PI / 36; // 5度/次
+    state.yawAngle += dir * step;
+    draw();
   };
 
   const mountPalette = () => {
@@ -349,7 +401,11 @@
       btn.title = p.name;
       if (p.value === state.selected) btn.classList.add('active');
       btn.innerHTML = `<div class="bead-sample" style="--c:${p.value || '#888'}"></div>`;
-      btn.onclick = () => { state.selected = p.value; mountPalette(); draw(); };
+      btn.onclick = () => {
+        state.selected = p.value;
+        mountPalette();
+        draw();
+      };
       tray.appendChild(btn);
     });
   };
@@ -365,12 +421,13 @@
   };
 
   document.getElementById('clearBtn').onclick = () => {
-    state.grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    state.grid = createGrid(state.rows, state.cols);
     draw();
   };
   document.getElementById('catBtn').onclick = loadCatPattern;
-  document.getElementById('rotLBtn').onclick = () => rotateBy(-1);
-  document.getElementById('rotRBtn').onclick = () => rotateBy(1);
+  document.getElementById('rotLBtn').onclick = () => rotateBySmallStep(-1);
+  document.getElementById('rotRBtn').onclick = () => rotateBySmallStep(1);
+  document.getElementById('resizeBoardBtn').onclick = applyBoardSize;
 
   document.getElementById('modeBtn').onclick = (e) => {
     state.displayMode = state.displayMode === 'code' ? 'color' : 'code';
@@ -382,7 +439,9 @@
     const file = e.target.files?.[0];
     if (!file) return;
     const img = new Image();
-    img.onload = () => { state.sourceImage = img; };
+    img.onload = () => {
+      state.sourceImage = img;
+    };
     img.src = URL.createObjectURL(file);
   });
 
@@ -394,7 +453,7 @@
 
   document.getElementById('fitBtn').onclick = () => {
     if (!state.sourceImage) return alert('请先上传图片');
-    state.grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    state.grid = createGrid(state.rows, state.cols);
     const k = Number(document.getElementById('kInput').value) || 6;
     imageToTemplate(state.sourceImage, Math.min(12, Math.max(2, k)));
   };
@@ -411,8 +470,20 @@
     else draw();
   });
 
-  window.addEventListener('pointerup', () => { state.dragging = false; });
-  canvas.addEventListener('pointerleave', () => { state.pointer.inside = false; draw(); });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.08 : 0.08;
+    state.zoom = Math.max(0.4, Math.min(2.4, state.zoom + delta));
+    draw();
+  }, { passive: false });
+
+  window.addEventListener('pointerup', () => {
+    state.dragging = false;
+  });
+  canvas.addEventListener('pointerleave', () => {
+    state.pointer.inside = false;
+    draw();
+  });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   window.addEventListener('resize', resize);
 

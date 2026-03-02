@@ -14,17 +14,21 @@
         <div class="group">
           <button class="pill" id="clearBtn">清空</button>
           <button class="pill" id="catBtn">加载目标图案</button>
-          <button class="pill" id="rotLBtn">↺ 左旋转</button>
-          <button class="pill" id="rotRBtn">↻ 右旋转</button>
+          <button class="pill" id="rotLBtn">↺ 左转一点</button>
+          <button class="pill" id="rotRBtn">↻ 右转一点</button>
         </div>
         <div class="group">
           <button class="pill" id="modeBtn">模式：色号</button>
         </div>
       </div>
-      <div class="help">左键放置，拖动连续放；右键/橡皮擦删除；已放珠子不会被覆盖。</div>
+      <div class="help">左键放置，拖动连续放；右键/橡皮擦删除；滚轮缩放画板；已放珠子不会被覆盖。</div>
     </section>
 
     <section class="tools">
+      <label class="tool-item">画板宽<input type="number" id="boardCols" min="8" max="120" value="22" /></label>
+      <label class="tool-item">画板高<input type="number" id="boardRows" min="8" max="120" value="34" /></label>
+      <button class="pill" id="resizeBoardBtn">应用画板尺寸</button>
+
       <label class="tool-item">
         选择图片
         <input type="file" id="imageInput" accept="image/*" />
