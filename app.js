@@ -7,16 +7,48 @@
   const MIN_GRID = 8;
   const MAX_GRID = 120;
 
-  const palette = [
-    { name: '深棕 BR', code: 'BR', value: '#4B2208' },
-    { name: '橙红 OR', code: 'OR', value: '#E84B0F' },
-    { name: '绿色 GN', code: 'GN', value: '#0B8E3E' },
-    { name: '浅绿 LG', code: 'LG', value: '#2EA643' },
-    { name: '黄橙 YL', code: 'YL', value: '#F29A2E' },
-    { name: '米白 IV', code: 'IV', value: '#F5F1E9' },
-    { name: '蓝灰 BL', code: 'BL', value: '#AAB2D0' },
-    { name: '橡皮擦', code: 'ER', value: null }
-  ];
+  const hslToHex = (h, s, l) => {
+    const sat = s / 100;
+    const lig = l / 100;
+    const c = (1 - Math.abs(2 * lig - 1)) * sat;
+    const hh = h / 60;
+    const x = c * (1 - Math.abs((hh % 2) - 1));
+    let r = 0, g = 0, b = 0;
+    if (hh >= 0 && hh < 1) [r, g, b] = [c, x, 0];
+    else if (hh < 2) [r, g, b] = [x, c, 0];
+    else if (hh < 3) [r, g, b] = [0, c, x];
+    else if (hh < 4) [r, g, b] = [0, x, c];
+    else if (hh < 5) [r, g, b] = [x, 0, c];
+    else [r, g, b] = [c, 0, x];
+    const m = lig - c / 2;
+    const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+  };
+
+  const generate221Palette = () => {
+    const colors = [];
+    const hues = Array.from({ length: 18 }, (_, i) => i * 20);
+    const sats = [55, 70, 85];
+    const lights = [35, 50, 65, 80];
+
+    for (const h of hues) {
+      for (const s of sats) {
+        for (const l of lights) {
+          colors.push(hslToHex(h, s, l));
+        }
+      }
+    }
+
+    colors.push('#111111', '#333333', '#666666', '#AAAAAA', '#EEEEEE');
+
+    return colors.slice(0, 221).map((hex, i) => ({
+      name: `颜色 ${String(i + 1).padStart(3, '0')}`,
+      code: `C${String(i + 1).padStart(3, '0')}`,
+      value: hex
+    }));
+  };
+
+  const palette = [...generate221Palette(), { name: '橡皮擦', code: 'ER', value: null }];
 
   const paintColors = palette.filter((p) => p.value);
   const colorToCode = Object.fromEntries(paintColors.map((p) => [p.value, p.code]));
@@ -27,7 +59,7 @@
     cols: 22,
     rows: 34,
     zoom: 1,
-    selected: '#F5F1E9',
+    selected: paintColors[0].value,
     grid: createGrid(34, 22),
     targetGrid: createGrid(34, 22),
     displayMode: 'code',
