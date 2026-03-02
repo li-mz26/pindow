@@ -2,6 +2,7 @@
   const canvas = document.getElementById('board');
   const ctx = canvas.getContext('2d');
   const tray = document.getElementById('tray');
+  const targetLegend = document.getElementById('targetLegend');
 
   const boardThickness = 26;
   const MIN_GRID = 8;
@@ -116,6 +117,75 @@
       }
     });
     return best;
+  };
+
+  const getTargetUsedColors = () => {
+    const set = new Set();
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        const t = state.targetGrid[r]?.[c];
+        if (t) set.add(t);
+      }
+    }
+    return [...set];
+  };
+
+  const drawTargetBlinkOverlay = () => {
+    if (!state.selected) return false;
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 220);
+    const fillAlpha = 0.1 + pulse * 0.25;
+    const strokeAlpha = 0.35 + pulse * 0.55;
+    let hasMatch = false;
+
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        const t = state.targetGrid[r]?.[c];
+        if (!t || t !== state.selected) continue;
+        hasMatch = true;
+        drawProjectedCell(c + 0.03, r + 0.03);
+        ctx.fillStyle = `rgba(255, 243, 122, ${fillAlpha.toFixed(3)})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255, 125, 60, ${strokeAlpha.toFixed(3)})`;
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      }
+    }
+
+    return hasMatch;
+  };
+
+  const renderTargetLegend = () => {
+    const usedColors = getTargetUsedColors();
+    const showLegend = state.displayMode === 'color' && usedColors.length > 0;
+    targetLegend.classList.toggle('hidden', !showLegend);
+    if (!showLegend) {
+      targetLegend.innerHTML = '';
+      return;
+    }
+
+    const sorted = usedColors
+      .map((value) => ({ value, code: colorToCode[value] || '--' }))
+      .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
+    targetLegend.innerHTML = '';
+    const title = document.createElement('span');
+    title.className = 'legend-title';
+    title.textContent = '目标图例：';
+    targetLegend.appendChild(title);
+
+    sorted.forEach((item) => {
+      const chip = document.createElement('button');
+      chip.className = 'legend-chip';
+      if (state.selected === item.value) chip.classList.add('active');
+      chip.innerHTML = `<span class="legend-dot" style="background:${item.value}"></span><span class="legend-code">${item.code}</span>`;
+      chip.onclick = () => {
+        state.selected = item.value;
+        mountPalette();
+        renderTargetLegend();
+        requestDraw(false);
+      };
+      targetLegend.appendChild(chip);
+    });
   };
 
   const projectionCache = { key: '', data: null };
@@ -400,7 +470,10 @@
     } else {
       ctx.putImageData(cachedBaseImage, 0, 0);
     }
+
+    const blinking = drawTargetBlinkOverlay();
     drawTweezers();
+    if (blinking) requestDraw(false);
   };
 
   let drawQueued = false;
@@ -490,6 +563,7 @@
         state.targetGrid[r][c] = centerToHex[labels[idx++]];
       }
     }
+    renderTargetLegend();
     requestDraw();
   };
 
@@ -515,6 +589,7 @@
         if (ch === '2') state.targetGrid[rr][cc] = paintColors.find((p) => p.code === 'H10')?.value || '#B4B6AB';
       });
     });
+    renderTargetLegend();
     requestDraw();
   };
 
@@ -561,6 +636,7 @@
         state.selected = activeColor.value;
         state.activeFamily = family.prefix;
         mountPalette();
+        renderTargetLegend();
         requestDraw();
       };
 
@@ -580,6 +656,7 @@
         state.selected = picked.value;
         state.activeFamily = family.prefix;
         mountPalette();
+        renderTargetLegend();
         requestDraw();
       };
 
@@ -600,6 +677,7 @@
     eraserBtn.onclick = () => {
       state.selected = null;
       mountPalette();
+      renderTargetLegend();
       requestDraw();
     };
     tray.appendChild(eraserBtn);
@@ -629,6 +707,7 @@
   document.getElementById('modeBtn').onclick = (e) => {
     state.displayMode = state.displayMode === 'code' ? 'color' : 'code';
     e.currentTarget.textContent = `模式：${state.displayMode === 'code' ? '色号' : '目标颜色'}`;
+    renderTargetLegend();
     requestDraw();
   };
 
@@ -686,5 +765,6 @@
 
   mountPalette();
   loadCatPattern();
+  renderTargetLegend();
   resize();
 })();
