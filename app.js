@@ -1,8 +1,17 @@
 (() => {
   const canvas = document.getElementById('board');
-  const ctx = canvas.getContext('2d');
+  let ctx = canvas.getContext('2d');
+  const mainCtx = ctx;
   const tray = document.getElementById('tray');
   const targetLegend = document.getElementById('targetLegend');
+  const imageInput = document.getElementById('imageInput');
+  const templateInput = document.getElementById('templateInput');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressText = document.getElementById('progressText');
+  const kmeansProgress = document.getElementById('kmeansProgress');
+  const cropModal = document.getElementById('cropModal');
+  const cropCanvas = document.getElementById('cropCanvas');
+  const cropCtx = cropCanvas.getContext('2d');
 
   const boardThickness = 26;
   const MIN_GRID = 8;
@@ -98,7 +107,25 @@
     dragging: false,
     pointer: { x: 0, y: 0, inside: false },
     yawAngle: 0,
-    sourceImage: null
+    viewOffsetX: 0,
+    viewOffsetY: 0,
+    sourceImage: null,
+    converting: false,
+    cropSession: null
+  };
+
+  const targetCellsByColor = new Map();
+
+  const rebuildTargetCellIndex = () => {
+    targetCellsByColor.clear();
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        const t = state.targetGrid[r]?.[c];
+        if (!t) continue;
+        if (!targetCellsByColor.has(t)) targetCellsByColor.set(t, []);
+        targetCellsByColor.get(t).push([r, c]);
+      }
+    }
   };
 
   const colorDist = (a, b) => {
@@ -137,10 +164,11 @@
     const strokeAlpha = 0.35 + pulse * 0.55;
     let hasMatch = false;
 
-    for (let r = 0; r < state.rows; r++) {
-      for (let c = 0; c < state.cols; c++) {
-        const t = state.targetGrid[r]?.[c];
-        if (!t || t !== state.selected) continue;
+    const cells = targetCellsByColor.get(state.selected) || [];
+    for (let i = 0; i < cells.length; i++) {
+      const [r, c] = cells[i];
+      const t = state.targetGrid[r]?.[c];
+      if (!t || t !== state.selected) continue;
         // 已正确填充的格子不再高亮闪烁
         if (state.grid[r]?.[c] === t) continue;
         hasMatch = true;
@@ -150,7 +178,6 @@
         ctx.strokeStyle = `rgba(255, 125, 60, ${strokeAlpha.toFixed(3)})`;
         ctx.lineWidth = 1.6;
         ctx.stroke();
-      }
     }
 
     return hasMatch;
@@ -193,7 +220,7 @@
   const projectionCache = { key: '', data: null };
 
   const getProjection = () => {
-    const key = [state.cols, state.rows, state.zoom, state.yawAngle.toFixed(4), canvas.clientWidth, canvas.clientHeight].join('|');
+    const key = [state.cols, state.rows, state.zoom, state.yawAngle.toFixed(4), state.viewOffsetX, state.viewOffsetY, canvas.clientWidth, canvas.clientHeight].join('|');
     if (projectionCache.key === key && projectionCache.data) return projectionCache.data;
 
     const w = canvas.clientWidth;
@@ -214,8 +241,8 @@
     const maxX = Math.max(...corners.map((p) => p.x));
     const minY = Math.min(...corners.map((p) => p.y));
     const maxY = Math.max(...corners.map((p) => p.y));
-    const offX = canvas.clientWidth / 2 - (minX + maxX) / 2;
-    const offY = canvas.clientHeight / 2 - (minY + maxY) / 2;
+    const offX = canvas.clientWidth / 2 - (minX + maxX) / 2 + state.viewOffsetX;
+    const offY = canvas.clientHeight / 2 - (minY + maxY) / 2 + state.viewOffsetY;
 
     projectionCache.key = key;
     projectionCache.data = { s, ct, st, offX, offY };
@@ -243,6 +270,14 @@
   const toCell = (clientX, clientY) => {
     const rect = canvas.getBoundingClientRect();
     const { u, v } = unproject(clientX - rect.left, clientY - rect.top);
+    const c = Math.floor(u);
+    const r = Math.floor(v);
+    if (r < 0 || r >= state.rows || c < 0 || c >= state.cols) return null;
+    return { r, c };
+  };
+
+  const toCellFromCanvasPoint = (px, py) => {
+    const { u, v } = unproject(px, py);
     const c = Math.floor(u);
     const r = Math.floor(v);
     if (r < 0 || r >= state.rows || c < 0 || c >= state.cols) return null;
@@ -416,41 +451,88 @@
 
   const drawTweezers = () => {
     if (!state.pointer.inside) return;
-    const { x, y } = state.pointer;
+    const hoverCell = toCellFromCanvasPoint(state.pointer.x, state.pointer.y);
+    const anchor = hoverCell ? project(hoverCell.c + 0.5, hoverCell.r + 0.5) : { x: state.pointer.x, y: state.pointer.y };
+    const x = anchor.x;
+    const y = anchor.y;
+
     ctx.save();
+    ctx.globalAlpha = hoverCell ? 0.96 : 0.82;
     ctx.lineCap = 'round';
     ctx.strokeStyle = 'rgba(109,149,201,.85)';
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(x - 40, y - 66);
-    ctx.lineTo(x - 7, y + 2);
+    ctx.moveTo(x - 30, y - 56);
+    ctx.lineTo(x - 4, y + 1);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(x - 26, y - 78);
-    ctx.lineTo(x + 7, y - 6);
+    ctx.moveTo(x - 16, y - 68);
+    ctx.lineTo(x + 6, y - 8);
     ctx.stroke();
 
     ctx.strokeStyle = 'rgba(180,120,220,.9)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(x - 46, y - 72);
-    ctx.lineTo(x - 12, y - 2);
+    ctx.moveTo(x - 36, y - 62);
+    ctx.lineTo(x - 8, y - 2);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(x - 32, y - 84);
+    ctx.moveTo(x - 22, y - 74);
     ctx.lineTo(x + 1, y - 10);
     ctx.stroke();
 
-    if (state.selected) {
-      drawDiamond(x + 8, y + 8, 12, 7);
+    if (hoverCell) {
+      drawProjectedCell(hoverCell.c + 0.08, hoverCell.r + 0.08);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(80,40,20,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    if (state.selected && hoverCell) {
+      drawDiamond(x + 8, y + 4, 10, 6);
       ctx.fillStyle = state.selected;
       ctx.fill();
     }
     ctx.restore();
   };
 
-  let cachedBaseImage = null;
-  let sceneDirty = true;
+  const staticLayer = document.createElement('canvas');
+  const beadsLayer = document.createElement('canvas');
+  const blinkLayer = document.createElement('canvas');
+  const staticCtx = staticLayer.getContext('2d');
+  const beadsCtx = beadsLayer.getContext('2d');
+  const blinkCtx = blinkLayer.getContext('2d');
+  let staticDirty = true;
+  let beadsDirty = true;
+
+  const withCtx = (nextCtx, fn) => {
+    const prevCtx = ctx;
+    ctx = nextCtx;
+    try { fn(); } finally { ctx = prevCtx; }
+  };
+
+  const drawStaticScene = () => {
+    withCtx(staticCtx, () => {
+      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      ctx.fillStyle = '#efe4c6';
+      ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      drawBoardBase();
+      drawTargetGrid();
+    });
+  };
+
+  const drawBeadsScene = () => {
+    withCtx(beadsCtx, () => {
+      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      for (let r = 0; r < state.rows; r++) {
+        for (let c = 0; c < state.cols; c++) {
+          if (state.grid[r]?.[c]) drawBeadAtCell(c, r, state.grid[r][c]);
+        }
+      }
+    });
+  };
 
   const drawScene = () => {
     ctx.fillStyle = '#efe4c6';
@@ -465,22 +547,41 @@
   };
 
   const renderFrame = () => {
-    if (sceneDirty || !cachedBaseImage) {
-      drawScene();
-      cachedBaseImage = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      sceneDirty = false;
-    } else {
-      ctx.putImageData(cachedBaseImage, 0, 0);
+    if (staticDirty) {
+      drawStaticScene();
+      staticDirty = false;
+      beadsDirty = true;
+    }
+    if (beadsDirty) {
+      drawBeadsScene();
+      beadsDirty = false;
     }
 
-    const blinking = drawTargetBlinkOverlay();
+    let blinking = false;
+    withCtx(blinkCtx, () => {
+      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      blinking = drawTargetBlinkOverlay();
+    });
+
+    mainCtx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    mainCtx.drawImage(staticLayer, 0, 0, staticLayer.width, staticLayer.height, 0, 0, canvas.clientWidth, canvas.clientHeight);
+    mainCtx.drawImage(beadsLayer, 0, 0, beadsLayer.width, beadsLayer.height, 0, 0, canvas.clientWidth, canvas.clientHeight);
+    if (blinking) {
+      mainCtx.drawImage(blinkLayer, 0, 0, blinkLayer.width, blinkLayer.height, 0, 0, canvas.clientWidth, canvas.clientHeight);
+    }
+
     drawTweezers();
     if (blinking) requestDraw(false);
   };
 
   let drawQueued = false;
-  const requestDraw = (full = true) => {
-    if (full) sceneDirty = true;
+  const requestDraw = (full = true, beadsOnly = false) => {
+    if (full) {
+      staticDirty = true;
+      beadsDirty = true;
+    } else if (beadsOnly) {
+      beadsDirty = true;
+    }
     if (drawQueued) return;
     drawQueued = true;
     requestAnimationFrame(() => {
@@ -494,14 +595,31 @@
     if (!cell) return;
     if (erase || state.selected === null) state.grid[cell.r][cell.c] = null;
     else if (!state.grid[cell.r][cell.c]) state.grid[cell.r][cell.c] = state.selected;
-    requestDraw();
+    requestDraw(false, true);
   };
 
-  const runKMeans = (pixels, k, iterations = 10) => {
+  const updateProgress = (value, message = '') => {
+    const clamped = Math.max(0, Math.min(100, Math.round(value)));
+    kmeansProgress.value = clamped;
+    progressText.textContent = message || `KMeans 进度：${clamped}%`;
+  };
+
+  const setConverting = (converting) => {
+    state.converting = converting;
+    progressWrap.classList.toggle('visible', converting);
+    document.getElementById('convertBtn').disabled = converting;
+    document.getElementById('fitBtn').disabled = converting;
+    document.getElementById('exportTemplateBtn').disabled = converting;
+    if (!converting) updateProgress(0, 'KMeans 进度：0%');
+  };
+
+  const runKMeans = async (pixels, k, iterations = 10) => {
     const centers = [];
     const step = Math.max(1, Math.floor(pixels.length / k));
     for (let i = 0; i < k; i++) centers.push([...pixels[Math.min(i * step, pixels.length - 1)]]);
     const labels = new Array(pixels.length).fill(0);
+    const totalOps = iterations * 2;
+    let completedOps = 0;
 
     for (let iter = 0; iter < iterations; iter++) {
       for (let i = 0; i < pixels.length; i++) {
@@ -516,6 +634,10 @@
         }
         labels[i] = best;
       }
+      completedOps++;
+      updateProgress(8 + (completedOps / totalOps) * 86, `KMeans 聚类中：${iter + 1}/${iterations}`);
+      // 让 UI 有机会刷新进度
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       const sums = Array.from({ length: k }, () => [0, 0, 0, 0]);
       for (let i = 0; i < pixels.length; i++) {
@@ -529,33 +651,31 @@
         if (!sums[c][3]) continue;
         centers[c] = [sums[c][0] / sums[c][3], sums[c][1] / sums[c][3], sums[c][2] / sums[c][3]];
       }
+      completedOps++;
+      updateProgress(8 + (completedOps / totalOps) * 86, `KMeans 聚类中：${iter + 1}/${iterations}`);
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
     return { centers, labels };
   };
 
-  const imageToTemplate = (img, k) => {
+  const imageToTemplate = async (img, k, crop) => {
     const off = document.createElement('canvas');
     off.width = state.cols;
     off.height = state.rows;
     const octx = off.getContext('2d');
     octx.clearRect(0, 0, state.cols, state.rows);
 
-    const scale = Math.min(state.cols / img.width, state.rows / img.height);
-    const dw = Math.max(1, Math.floor(img.width * scale));
-    const dh = Math.max(1, Math.floor(img.height * scale));
-    const dx = Math.floor((state.cols - dw) / 2);
-    const dy = Math.floor((state.rows - dh) / 2);
-
     octx.fillStyle = '#f5f1e9';
     octx.fillRect(0, 0, state.cols, state.rows);
-    octx.drawImage(img, 0, 0, img.width, img.height, dx, dy, dw, dh);
+    octx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, state.cols, state.rows);
 
     const imgData = octx.getImageData(0, 0, state.cols, state.rows).data;
     const pixels = [];
     for (let i = 0; i < imgData.length; i += 4) pixels.push([imgData[i], imgData[i + 1], imgData[i + 2]]);
+    updateProgress(5, 'KMeans 预处理中…');
 
-    const { centers, labels } = runKMeans(pixels, k, 12);
+    const { centers, labels } = await runKMeans(pixels, k, 12);
     const centerToHex = centers.map((c) => nearestPaletteHex(c));
 
     state.targetGrid = createGrid(state.rows, state.cols);
@@ -565,6 +685,106 @@
         state.targetGrid[r][c] = centerToHex[labels[idx++]];
       }
     }
+    rebuildTargetCellIndex();
+    updateProgress(100, 'KMeans 完成');
+    renderTargetLegend();
+    requestDraw();
+  };
+
+  const drawCropPreview = () => {
+    const session = state.cropSession;
+    if (!session) return;
+    const { img, scale, offsetX, offsetY } = session;
+    cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+    cropCtx.fillStyle = '#f5f1e9';
+    cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+
+    const boardAspect = state.cols / state.rows;
+    let frameW = cropCanvas.width * 0.78;
+    let frameH = frameW / boardAspect;
+    if (frameH > cropCanvas.height * 0.82) {
+      frameH = cropCanvas.height * 0.82;
+      frameW = frameH * boardAspect;
+    }
+    const frameX = (cropCanvas.width - frameW) / 2;
+    const frameY = (cropCanvas.height - frameH) / 2;
+    session.frame = { frameX, frameY, frameW, frameH };
+
+    const imgW = img.width * scale;
+    const imgH = img.height * scale;
+    cropCtx.drawImage(img, offsetX, offsetY, imgW, imgH);
+
+    cropCtx.save();
+    cropCtx.fillStyle = 'rgba(0,0,0,0.45)';
+    cropCtx.beginPath();
+    cropCtx.rect(0, 0, cropCanvas.width, cropCanvas.height);
+    cropCtx.rect(frameX, frameY, frameW, frameH);
+    cropCtx.fill('evenodd');
+    cropCtx.restore();
+
+    cropCtx.strokeStyle = '#fff';
+    cropCtx.lineWidth = 2;
+    cropCtx.strokeRect(frameX, frameY, frameW, frameH);
+  };
+
+  const openCropModal = (img, onConfirm) => {
+    const baseScale = Math.max((cropCanvas.width * 0.5) / img.width, (cropCanvas.height * 0.5) / img.height);
+    state.cropSession = {
+      img,
+      scale: baseScale,
+      offsetX: (cropCanvas.width - img.width * baseScale) / 2,
+      offsetY: (cropCanvas.height - img.height * baseScale) / 2,
+      dragging: false,
+      lastX: 0,
+      lastY: 0,
+      onConfirm,
+      frame: null
+    };
+    cropModal.classList.remove('hidden');
+    drawCropPreview();
+  };
+
+  const closeCropModal = () => {
+    cropModal.classList.add('hidden');
+    state.cropSession = null;
+    cropCanvas.classList.remove('dragging');
+  };
+
+  const exportTemplate = () => {
+    const pixel = 12;
+    const out = document.createElement('canvas');
+    out.width = state.cols * pixel;
+    out.height = state.rows * pixel;
+    const outCtx = out.getContext('2d');
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        outCtx.fillStyle = state.targetGrid[r][c] || '#f5f1e9';
+        outCtx.fillRect(c * pixel, r * pixel, pixel, pixel);
+      }
+    }
+    const a = document.createElement('a');
+    a.download = `template-${state.cols}x${state.rows}.png`;
+    a.href = out.toDataURL('image/png');
+    a.click();
+  };
+
+  const importTemplateFromImage = (img) => {
+    const off = document.createElement('canvas');
+    off.width = state.cols;
+    off.height = state.rows;
+    const octx = off.getContext('2d');
+    octx.drawImage(img, 0, 0, state.cols, state.rows);
+    const data = octx.getImageData(0, 0, state.cols, state.rows).data;
+    state.targetGrid = createGrid(state.rows, state.cols);
+    let idx = 0;
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        const rgb = [data[idx], data[idx + 1], data[idx + 2]];
+        state.targetGrid[r][c] = nearestPaletteHex(rgb);
+        idx += 4;
+      }
+    }
+    rebuildTargetCellIndex();
     renderTargetLegend();
     requestDraw();
   };
@@ -591,6 +811,7 @@
         if (ch === '2') state.targetGrid[rr][cc] = paintColors.find((p) => p.code === 'H10')?.value || '#B4B6AB';
       });
     });
+    rebuildTargetCellIndex();
     renderTargetLegend();
     requestDraw();
   };
@@ -612,6 +833,13 @@
   const rotateBySmallStep = (dir) => {
     const step = Math.PI / 36; // 5度/次
     state.yawAngle += dir * step;
+    requestDraw();
+  };
+
+  const panBoard = (dx, dy) => {
+    state.viewOffsetX += dx;
+    state.viewOffsetY += dy;
+    projectionCache.key = '';
     requestDraw();
   };
 
@@ -691,20 +919,34 @@
     const h = canvas.clientHeight;
     canvas.width = Math.floor(w * ratio);
     canvas.height = Math.floor(h * ratio);
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    cachedBaseImage = null;
-    sceneDirty = true;
+    staticLayer.width = canvas.width;
+    staticLayer.height = canvas.height;
+    beadsLayer.width = canvas.width;
+    beadsLayer.height = canvas.height;
+    blinkLayer.width = canvas.width;
+    blinkLayer.height = canvas.height;
+    mainCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    staticCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    beadsCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    blinkCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    projectionCache.key = '';
+    staticDirty = true;
+    beadsDirty = true;
     requestDraw();
   };
 
   document.getElementById('clearBtn').onclick = () => {
     state.grid = createGrid(state.rows, state.cols);
-    requestDraw();
+    requestDraw(false, true);
   };
   document.getElementById('catBtn').onclick = loadCatPattern;
   document.getElementById('rotLBtn').onclick = () => rotateBySmallStep(-1);
   document.getElementById('rotRBtn').onclick = () => rotateBySmallStep(1);
   document.getElementById('resizeBoardBtn').onclick = applyBoardSize;
+  document.getElementById('panUpBtn').onclick = () => panBoard(0, -22);
+  document.getElementById('panDownBtn').onclick = () => panBoard(0, 22);
+  document.getElementById('panLeftBtn').onclick = () => panBoard(-22, 0);
+  document.getElementById('panRightBtn').onclick = () => panBoard(22, 0);
 
   document.getElementById('modeBtn').onclick = (e) => {
     state.displayMode = state.displayMode === 'code' ? 'color' : 'code';
@@ -713,7 +955,7 @@
     requestDraw();
   };
 
-  document.getElementById('imageInput').addEventListener('change', (e) => {
+  imageInput.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const img = new Image();
@@ -723,18 +965,102 @@
     img.src = URL.createObjectURL(file);
   });
 
+  templateInput.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => importTemplateFromImage(img);
+    img.src = URL.createObjectURL(file);
+  });
+
+  document.getElementById('exportTemplateBtn').onclick = exportTemplate;
+
   document.getElementById('convertBtn').onclick = () => {
+    if (state.converting) return;
     if (!state.sourceImage) return alert('请先上传图片');
     const k = Number(document.getElementById('kInput').value) || 6;
-    imageToTemplate(state.sourceImage, Math.min(12, Math.max(2, k)));
+    openCropModal(state.sourceImage, async (crop) => {
+      setConverting(true);
+      try {
+        await imageToTemplate(state.sourceImage, Math.min(12, Math.max(2, k)), crop);
+      } finally {
+        setConverting(false);
+      }
+    });
   };
 
   document.getElementById('fitBtn').onclick = () => {
+    if (state.converting) return;
     if (!state.sourceImage) return alert('请先上传图片');
     state.grid = createGrid(state.rows, state.cols);
     const k = Number(document.getElementById('kInput').value) || 6;
-    imageToTemplate(state.sourceImage, Math.min(12, Math.max(2, k)));
+    openCropModal(state.sourceImage, async (crop) => {
+      setConverting(true);
+      try {
+        await imageToTemplate(state.sourceImage, Math.min(12, Math.max(2, k)), crop);
+      } finally {
+        setConverting(false);
+      }
+    });
   };
+
+  document.getElementById('cropCancelBtn').onclick = closeCropModal;
+  document.getElementById('cropConfirmBtn').onclick = async () => {
+    const session = state.cropSession;
+    if (!session) return;
+    const { img, scale, offsetX, offsetY, frame, onConfirm } = session;
+    const crop = {
+      sx: (frame.frameX - offsetX) / scale,
+      sy: (frame.frameY - offsetY) / scale,
+      sw: frame.frameW / scale,
+      sh: frame.frameH / scale
+    };
+    closeCropModal();
+    await onConfirm(crop);
+  };
+
+  cropCanvas.addEventListener('pointerdown', (e) => {
+    const session = state.cropSession;
+    if (!session) return;
+    session.dragging = true;
+    session.lastX = e.clientX;
+    session.lastY = e.clientY;
+    cropCanvas.classList.add('dragging');
+  });
+
+  cropCanvas.addEventListener('pointermove', (e) => {
+    const session = state.cropSession;
+    if (!session?.dragging) return;
+    const dx = e.clientX - session.lastX;
+    const dy = e.clientY - session.lastY;
+    session.lastX = e.clientX;
+    session.lastY = e.clientY;
+    session.offsetX += dx;
+    session.offsetY += dy;
+    drawCropPreview();
+  });
+
+  window.addEventListener('pointerup', () => {
+    if (!state.cropSession) return;
+    state.cropSession.dragging = false;
+    cropCanvas.classList.remove('dragging');
+  });
+
+  cropCanvas.addEventListener('wheel', (e) => {
+    const session = state.cropSession;
+    if (!session) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.08 : 0.92;
+    const nextScale = Math.max(0.05, Math.min(20, session.scale * factor));
+    const rect = cropCanvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const ratio = nextScale / session.scale;
+    session.offsetX = px - (px - session.offsetX) * ratio;
+    session.offsetY = py - (py - session.offsetY) * ratio;
+    session.scale = nextScale;
+    drawCropPreview();
+  }, { passive: false });
 
   canvas.addEventListener('pointerdown', (e) => {
     state.dragging = true;
