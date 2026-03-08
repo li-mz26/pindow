@@ -128,12 +128,71 @@
     }
   };
 
+  // RGB to LAB conversion (for perceptually accurate color distance)
+  const rgbToLab = (rgb) => {
+    let r = rgb[0] / 255, g = rgb[1] / 255, b = rgb[2] / 255;
+    r = r > 0.04045 ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
+    g = g > 0.04045 ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
+    b = b > 0.04045 ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
+    let x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+    let y = (r * 0.2126 + g * 0.7152 + b * 0.0722) / 1.00000;
+    let z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+    x = x > 0.008856 ? Math.pow(x, 1/3) : (7.787 * x) + 16/116;
+    y = y > 0.008856 ? Math.pow(y, 1/3) : (7.787 * y) + 16/116;
+    z = z > 0.008856 ? Math.pow(z, 1/3) : (7.787 * z) + 16/116;
+    return [(116 * y) - 16, 500 * (x - y), 200 * (y - z)];
+  };
+
+  // Fallback RGB distance (original)
   const colorDist = (a, b) => {
     const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
     return dr * dr + dg * dg + db * db;
   };
 
+  // Delta E 76 (CIE76) - simpler LAB Euclidean distance
+  const deltaE = (lab1, lab2) => {
+    const dL = lab1[0] - lab2[0];
+    const da = lab1[1] - lab2[1];
+    const db = lab1[2] - lab2[2];
+    return dL * dL + da * da + db * db;  // squared for comparison
+  };
+
+  // Cache for LAB conversions to improve performance
+  const labCache = new Map();
+  const getLab = (rgb) => {
+    const key = rgb.join(',');
+    if (labCache.has(key)) return labCache.get(key);
+    try {
+      const lab = rgbToLab(rgb);
+      labCache.set(key, lab);
+      return lab;
+    } catch (e) {
+      return null;  // fallback to RGB
+    }
+  };
+
   const nearestPaletteHex = (rgb) => {
+    const targetLab = getLab(rgb);
+    
+    // Use LAB if available, otherwise fall back to RGB
+    if (targetLab && targetLab[0] !== null) {
+      let best = paintColors[0].value;
+      let bestD = Infinity;
+      paintColors.forEach((p) => {
+        const pRgb = hexToRgb(p.value);
+        const pLab = getLab(pRgb);
+        if (pLab) {
+          const d = deltaE(targetLab, pLab);
+          if (d < bestD) {
+            bestD = d;
+            best = p.value;
+          }
+        }
+      });
+      return best;
+    }
+    
+    // Fallback to RGB distance
     let best = paintColors[0].value;
     let bestD = Infinity;
     paintColors.forEach((p) => {
